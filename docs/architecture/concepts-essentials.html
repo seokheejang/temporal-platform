@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>꼭 알아야 할 개념 - temporal-platform</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif;
+           margin: 0; padding: 24px; color: #1b1b1f; background: #fafafa; }
+    .nav { font-size: 13px; margin: 0 0 12px; } .nav a { color:#7B3FE4; text-decoration:none; }
+    .nav a:hover { text-decoration:underline; }
+    h1 { font-size: 20px; margin: 0 0 4px; } .sub { color: #666; font-size: 13px; margin: 0 0 16px; }
+    .key { background:#fff; border:1px solid #e3e3e3; border-radius:10px; padding:14px 18px; margin-top:16px; }
+    .key h2 { font-size:14px; margin:0 0 8px; color:#2A0F4D; }
+    .key li { font-size:13px; color:#333; line-height:1.7; }
+    .diagram { background:#fff; border:1px solid #e3e3e3; border-radius:10px; padding:16px; margin-top:16px; overflow:auto; }
+    table { border-collapse:collapse; width:100%; font-size:13px; } th,td { border:1px solid #e3e3e3; padding:6px 10px; text-align:left; }
+    th { background:#f5f3fa; } code { background:#f0f0f3; padding:1px 5px; border-radius:4px; } a { color:#7B3FE4; }
+  </style>
+</head>
+<body>
+  <p class="nav"><a href="index.html">← 아키텍처 목록</a></p>
+  <h1>꼭 알아야 할 개념</h1>
+  <p class="sub">이 플랫폼을 다루기 전 최소 지식만. 용어 전체 정의는 <a href="../glossary.md">glossary</a>.</p>
+
+  <div class="key">
+    <h2>1. Temporal 핵심 4가지</h2>
+    <ul>
+      <li><b>Cluster (= Temporal Service)</b>: Frontend / History / Matching / Worker service 4개 컴포넌트 + DB 묶음. 이 repo는 서비스마다 이걸 하나씩 독립으로 띄운다.</li>
+      <li><b>Workflow / Activity</b>: Workflow = 결정적(deterministic) 오케스트레이션 코드. Activity = 실제 IO·부수효과를 하는 단위(재시도됨). Workflow는 직접 IO 안 하고 Activity를 부른다.</li>
+      <li><b>Task Queue</b>: Worker가 long-poll 하는 이름 붙은 큐. 메시지 브로커가 아니라 <b>매칭 큐</b>다.</li>
+      <li><b>Worker (SDK)</b>: Workflow/Activity 코드를 담아 Task Queue를 polling 하는 <b>서버 밖 프로세스</b>. Temporal 서버는 상태만 관리하고, 실제 코드 실행은 Worker가 한다.</li>
+    </ul>
+  </div>
+
+  <div class="key">
+    <h2>2. ⚠️ Namespace - 두 가지 뜻 (가장 자주 사고나는 지점)</h2>
+    <div class="diagram" style="margin:8px 0 0;border:none;padding:0;">
+    <pre class="mermaid">
+flowchart LR
+  classDef k8s fill:#D6E4FF,stroke:#1F5FE0,color:#0A2A66;
+  classDef temporal fill:#E3D1F7,stroke:#7B3FE4,color:#2A0F4D;
+  subgraph KNS[k8s namespace = 리소스 격리]
+    direction TB
+    SRV[Temporal 서버 파드들]:::k8s
+    subgraph TNS[Temporal 서버 내부]
+      T1[Temporal ns: example-service-dev]:::temporal
+      T2[Temporal ns: 다른 테넌트]:::temporal
+    end
+  end
+    </pre>
+    </div>
+    <ul>
+      <li><b>k8s Namespace</b>: 파드·Service 등 리소스 격리 단위(<code>dev-temporal-example-service</code>).</li>
+      <li><b>Temporal Namespace</b>: 서버 <b>내부</b>의 워크플로우 논리 격리/테넌트 단위(<code>example-service-dev</code>). retention 정책을 가진다. self-hosted는 <b>명시 등록해야</b> 쓸 수 있다.</li>
+      <li>→ 한 k8s namespace 안에 여러 Temporal namespace가 들어갈 수 있다. 회의에서 "어느 쪽 namespace?"를 먼저 확인.</li>
+    </ul>
+  </div>
+
+  <div class="key">
+    <h2>3. repo 구조 - values 3-layer</h2>
+    <p style="font-size:13px;color:#333;margin:0 0 8px;">서버 values는 세 겹으로 합쳐진다(ArgoCD <code>$values</code>, ADR-0005). 공통 → 서비스 → 환경 순으로 오버라이드:</p>
+    <p style="font-size:13px;"><code>base/values-common.yaml</code> → <code>services/&lt;svc&gt;/values.yaml</code> → <code>services/&lt;svc&gt;/&lt;env&gt;/values.yaml</code></p>
+    <table>
+      <tr><th>구성</th><th>무엇</th></tr>
+      <tr><td><code>base/</code></td><td>조직 공통 기본값(얇게, ADR-0004)</td></tr>
+      <tr><td><code>services/&lt;svc&gt;/</code></td><td>서비스 공통 설계(umbrella wrapper, upstream 값은 <code>temporal:</code> 키 아래)</td></tr>
+      <tr><td><code>services/&lt;svc&gt;/&lt;env&gt;/</code></td><td>dev/prod 차이만</td></tr>
+      <tr><td><code>charts/worker</code></td><td>worker 공용 차트(worker별 값은 <code>&lt;env&gt;/workers/&lt;name&gt;/values.yaml</code>)</td></tr>
+    </table>
+    <p style="font-size:12px;color:#555;margin:8px 0 0;">ArgoCD ApplicationSet이 이 디렉토리를 발견해 server·db·worker 앱을 자동 생성한다.</p>
+  </div>
+
+  <div class="key">
+    <h2>4. 보안 - mTLS와 PKI (쓸 경우)</h2>
+    <ul>
+      <li><b>mTLS 두 구간</b>: <code>internode</code>(서버↔서버)와 <code>frontend</code>(worker/UI↔서버)를 각각 설정. 기본 설계는 양방향·cert-only(cert 없으면 거부).</li>
+      <li><b>신뢰 체인</b>: Root CA → Intermediate CA → leaf cert. 모두 한 Root에서 나오면 서로 신뢰. (예: Vault PKI가 Root/Intermediate 보유)</li>
+      <li><b>cert 조달 2가지</b>: in-cluster worker는 <b>cert-manager</b>가 자동 발급·갱신(Vault 접속정보 불필요, 파일 경로 env만). 클러스터 밖 worker는 <b>Vault에서 직접 발급</b>.</li>
+      <li><b>⚠️ 함정</b>: cert-manager는 Secret만 갱신하고 파드를 재기동 안 한다 → 앱이 cert를 시작 시 1회만 읽으면 갱신 반영이 안 됨. 상세: <a href="../runbooks/temporal-mtls-enable.md">mtls-enable</a>, <a href="../runbooks/vault-pki-setup.md">vault-pki-setup</a>.</li>
+    </ul>
+  </div>
+
+  <div class="key">
+    <h2>5. 알아두면 좋은 불변식</h2>
+    <ul>
+      <li><b>NumHistoryShards</b>: 클러스터 생성 후 <b>변경 불가</b>. 규모에 맞춰 생성 전 확정(소규모 prod 권장 512).</li>
+      <li><b>Determinism</b>: Workflow 코드는 결정적이어야 한다(시간·랜덤·외부호출은 API 통해서만). replay 때문에 필수.</li>
+      <li><b>인증은 필수가 아니다</b>: Temporal 운영에 반드시 필요한 건 서버 + DB뿐. mTLS·IdP·SSO는 보안 강화 옵션(외부 노출 시 강력 권장).</li>
+    </ul>
+  </div>
+</body>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose', flowchart: { htmlLabels: true } });
+</script>
+</html>

@@ -118,7 +118,7 @@ Temporal 이해 + 개발자와의 소통 sync를 위한 살아있는 용어집. 
 
 ## 6. 인증서 · CA · 시크릿 관리 (PKI/TLS 운영)
 
-> mTLS·Vault PKI 설계 용어. 실측 현황도 = [architecture/auth-pki-topology.html](architecture/auth-pki-topology.html), 세팅 절차 = [runbooks/vault-pki-setup.md](runbooks/vault-pki-setup.md).
+> mTLS·Vault PKI 설계 용어. PKI·mTLS 개념도 = [architecture/concepts-essentials.html](architecture/concepts-essentials.html), 세팅 절차 = [runbooks/vault-pki-setup.md](runbooks/vault-pki-setup.md).
 
 | 용어 | 정의 | 비고 / 혼동주의 |
 |------|------|------|

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>전체 토폴로지 · Temporal Platform</title>
+<style>
+  :root {
+    --ink:#11151c; --ink-soft:#3a424e; --ink-faint:#6b7480;
+    --paper:#f6f7f9; --panel:#ffffff; --line:#dde1e8;
+    --indigo:#4f46e5; --teal:#0d8a7d; --amber:#c2700a; --violet:#7c5cd6; --rust:#c0492f;
+    --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.55; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1480px; margin:0 auto; padding:28px 24px 48px; }
+  .nav { font-size:13px; margin:0 0 16px; } .nav a { color:var(--indigo); text-decoration:none; } .nav a:hover { text-decoration:underline; }
+  header.mast { border-bottom:2px solid var(--ink); padding-bottom:20px; margin-bottom:22px; }
+  .eyebrow { font-family:var(--mono); font-size:11.5px; letter-spacing:0.16em; text-transform:uppercase; color:var(--indigo); font-weight:600; margin:0 0 12px; }
+  h1 { font-size:clamp(26px,4vw,40px); line-height:1.05; letter-spacing:-0.02em; font-weight:740; margin:0 0 12px; text-wrap:balance; }
+  .sub { font-size:15.5px; color:var(--ink-soft); max-width:70ch; margin:0; }
+  .provenance { margin-top:18px; display:flex; flex-wrap:wrap; gap:8px 18px; font-family:var(--mono); font-size:12px; color:var(--ink-faint); }
+  .provenance b { color:var(--ink-soft); font-weight:600; }
+  .legends { display:flex; flex-wrap:wrap; gap:18px 40px; padding:18px 0 6px; }
+  .legend-group { display:flex; flex-direction:column; gap:6px; }
+  .legend-group .gh { font-family:var(--mono); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
+  .legend-row { display:flex; flex-wrap:wrap; gap:6px 20px; font-size:12.5px; color:var(--ink-soft); }
+  .legend-row .li { display:inline-flex; align-items:center; gap:9px; }
+  .swatch { width:30px; height:0; border-top-width:2.5px; border-top-style:solid; flex:0 0 auto; }
+  .swatch.secure { border-color:var(--teal); }
+  .swatch.intern { border-color:var(--indigo); border-top-style:dashed; }
+  .swatch.ctrl   { border-color:var(--ink-faint); border-top-style:dotted; border-top-width:3px; }
+  .swatch.cross  { border-color:var(--amber); border-top-style:dashed; }
+  .box { width:14px; height:11px; border-radius:3px; border:1.5px solid; flex:0 0 auto; }
+  .box.ext { border-color:var(--violet); background:#f0ebfb; }
+  .box.cl  { border-color:#9aa1b3; background:#fbfbfd; }
+  .box.ns  { border-color:var(--indigo); background:#eef0fe; }
+  .box.vault { border-color:var(--rust); background:#fde5e2; }
+  .diagram-frame { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:16px 12px; overflow-x:auto; }
+  .diagram-frame svg { display:block; margin:0 auto; max-width:100%; height:auto; }
+  .secstrip { margin-top:30px; display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  .sec { border:1px solid var(--line); border-radius:8px; padding:13px 15px; background:var(--panel); }
+  .sec .h { font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--teal); font-weight:600; margin-bottom:7px; }
+  .sec.indigo .h { color:var(--indigo); } .sec.amber .h { color:var(--amber); } .sec.violet .h { color:var(--violet); }
+  .sec p { margin:0; font-size:12.5px; color:var(--ink-soft); }
+  .sec code { font-family:var(--mono); font-size:11px; color:var(--ink); background:#f1f2f6; padding:1px 4px; border-radius:3px; }
+  .pflow { margin-top:28px; display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .ptrack { border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:16px 18px; }
+  .ptrack.pki { border-top:3px solid var(--rust); } .ptrack.eso { border-top:3px solid var(--teal); }
+  .ptrack h3 { margin:0 0 4px; font-size:14px; font-weight:700; }
+  .ptrack .who { font-family:var(--mono); font-size:11px; color:var(--ink-faint); margin:0 0 12px; }
+  .ptrack ol { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:11px; }
+  .ptrack li { display:flex; gap:10px; align-items:flex-start; font-size:12.8px; color:var(--ink-soft); line-height:1.5; }
+  .ptrack li .tag { flex:0 0 auto; font-family:var(--mono); font-size:11px; font-weight:800; padding:2.5px 7px; border-radius:5px; border:1.5px solid; margin-top:1px; }
+  .ptrack.pki li .tag { background:#fde5e2; color:#8a2d18; border-color:#e0b3a8; }
+  .ptrack.eso li .tag { background:#e2f4f1; color:#096258; border-color:#a9ddd4; }
+  .ptrack li b { color:var(--ink); }
+  .ptrack code { font-family:var(--mono); font-size:11px; background:#f1f2f6; padding:1px 5px; border-radius:3px; color:var(--ink); }
+  .pflow-note { margin-top:12px; font-size:12.5px; color:var(--ink-soft); border-left:3px solid var(--indigo); padding:8px 14px; background:#eef0fe; border-radius:0 6px 6px 0; }
+  footer { margin-top:36px; padding-top:16px; border-top:1px solid var(--line); font-size:11.5px; color:var(--ink-faint); font-family:var(--mono); }
+  @media (max-width:900px){ .secstrip{ grid-template-columns:repeat(2,1fr);} .pflow{ grid-template-columns:1fr;} }
+  @media (max-width:520px){ .secstrip{ grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="nav"><a href="index.html">← 아키텍처 목록</a></p>
+  <header class="mast">
+    <p class="eyebrow">Reference topology · self-hosted Temporal on Kubernetes</p>
+    <h1>Temporal Platform <span style="color:var(--indigo)">전체 토폴로지</span></h1>
+    <p class="sub">한 서비스의 Temporal 클러스터 1개(= 한 환경)를 Kubernetes에 올렸을 때의 구성. 경계는 <b>외부 → 클러스터 → namespace</b> 3단계로 중첩되고, 화살표는 트래픽 방향과 인증 모드를 나타낸다.</p>
+    <div class="provenance">
+      <span><b>scope</b> 서비스 1 × 환경 1</span>
+      <span><b>auth</b> mTLS (cert-only)</span>
+      <span><b>persistence</b> cnpg PostgreSQL ×2</span>
+      <span><b>deploy</b> ArgoCD GitOps</span>
+    </div>
+  </header>
+
+  <div class="legends">
+    <div class="legend-group">
+      <span class="gh">경계 (Boundary)</span>
+      <div class="legend-row">
+        <span class="li"><span class="box ext"></span> 외부 (클러스터 밖)</span>
+        <span class="li"><span class="box cl"></span> Kubernetes 클러스터</span>
+        <span class="li"><span class="box ns"></span> namespace</span>
+        <span class="li"><span class="box vault"></span> Vault (PKI+KV)</span>
+      </div>
+    </div>
+    <div class="legend-group">
+      <span class="gh">연결 (Edge)</span>
+      <div class="legend-row">
+        <span class="li"><span class="swatch secure"></span> mTLS (양방향)</span>
+        <span class="li"><span class="swatch intern"></span> internode</span>
+        <span class="li"><span class="swatch ctrl"></span> 제어 · 배포 · 수집</span>
+        <span class="li"><span class="swatch cross"></span> cert · secret 조달</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="diagram-frame">
+    <pre class="mermaid">
+flowchart TB
+classDef temporal fill:#eef0fe,stroke:#4f46e5,color:#1e2270,stroke-width:1.2px;
+classDef data fill:#e2f4f1,stroke:#0d8a7d,color:#08403a,stroke-width:1.2px;
+classDef plat fill:#ffffff,stroke:#9aa1b3,color:#3a424e,stroke-width:1.2px;
+classDef ext fill:#f0ebfb,stroke:#7c5cd6,color:#3b2a63,stroke-width:1.2px;
+classDef vault fill:#fde5e2,stroke:#c0492f,color:#7a2717,stroke-width:1.2px;
+
+subgraph EXT[" 외부 · 클러스터 밖 "]
+  UIU["Web UI 사용자<br/><small>브라우저</small>"]:::ext
+  SDKW["외부 SDK Worker · CLI<br/><small>gRPC client</small>"]:::ext
+end
+
+subgraph CL[" Kubernetes 클러스터 "]
+  subgraph NSS[" namespace · server "]
+    WEB["Web UI"]:::temporal
+    FE["Frontend<br/><small>:7233 gRPC</small>"]:::temporal
+    HIS["History<br/><small>shard · 상태</small>"]:::temporal
+    MAT["Matching<br/><small>task queue</small>"]:::temporal
+    IW["Worker service<br/><small>서버 내부용</small>"]:::temporal
+  end
+  subgraph NSW[" namespace · worker "]
+    OW["orchestration-worker<br/><small>SDK</small>"]:::temporal
+    AW["activity-worker<br/><small>SDK</small>"]:::temporal
+  end
+  subgraph NSD[" namespace · db "]
+    PG[("cnpg PostgreSQL<br/><small>main + visibility</small>")]:::data
+  end
+  subgraph PLAT[" 플랫폼 공통 "]
+    ARGO["ArgoCD<br/><small>GitOps</small>"]:::plat
+    VAULT["Vault<br/><small>PKI + KV</small>"]:::vault
+    PROM["Prometheus<br/><small>+ Grafana</small>"]:::plat
+  end
+end
+
+UIU -->|HTTPS| WEB
+SDKW -->|gRPC · mTLS| FE
+WEB -->|mTLS| FE
+FE <--> HIS
+FE <--> MAT
+HIS --- MAT
+MAT --- IW
+HIS -->|persist| PG
+MAT -->|persist| PG
+OW -->|poll · mTLS| FE
+AW -->|poll · mTLS| FE
+ARGO -.->|apply| WEB
+VAULT -.->|cert · secret| FE
+PROM -.->|scrape| PG
+
+linkStyle 1,2,9,10 stroke:#0d8a7d,stroke-width:2.2px;
+linkStyle 0 stroke:#4f46e5,stroke-width:2.2px;
+linkStyle 3,4,5,6 stroke:#4f46e5,stroke-width:1.6px,stroke-dasharray:5 4;
+linkStyle 7,8 stroke:#6b7480,stroke-width:1.8px;
+linkStyle 11,13 stroke:#9aa1b3,stroke-width:1.6px,stroke-dasharray:2 3;
+linkStyle 12 stroke:#c2700a,stroke-width:1.8px,stroke-dasharray:5 4;
+    </pre>
+  </div>
+
+  <div class="secstrip">
+    <div class="sec">
+      <div class="h">외부 진입점</div>
+      <p>진입점은 둘뿐: <b>Web UI</b>(HTTPS, 브라우저)와 <b>Frontend</b> <code>:7233</code>(gRPC + mTLS). 외부 SDK worker·CLI는 Frontend로 접속한다.</p>
+    </div>
+    <div class="sec indigo">
+      <div class="h">서버 4-role</div>
+      <p><b>frontend</b>(stateless 게이트웨이) · <b>history</b>(shard·상태) · <b>matching</b>(task queue) · <b>worker service</b>(서버 내부용). Web UI는 별도.</p>
+    </div>
+    <div class="sec violet">
+      <div class="h">namespace 분리</div>
+      <p><b>server · db · worker</b>가 각각 별도 k8s namespace. worker ns를 지워도 server·db는 안전. SDK worker는 서버 밖 프로세스(배포만 이 repo).</p>
+    </div>
+    <div class="sec amber">
+      <div class="h">플랫폼 공통 · 교체 가능</div>
+      <p>ArgoCD · cert-manager · ESO · Vault · cnpg · Prometheus. 사용 환경에 맞춰 교체/제거 가능. <code>docs/platform-assumptions.md</code>.</p>
+    </div>
+  </div>
+
+  <div class="pflow">
+    <div class="ptrack pki">
+      <h3>인증서 조달 (mTLS)</h3>
+      <p class="who">cert-manager (in-cluster) · Vault (외부 worker)</p>
+      <ol>
+        <li><span class="tag">CA</span><span class="d"><b>Vault PKI</b>가 Root → Intermediate 공통 CA를 보유.</span></li>
+        <li><span class="tag">발급</span><span class="d">in-cluster는 <b>cert-manager</b>가 <code>ClusterIssuer</code>로 leaf 발급·자동 갱신 → Secret.</span></li>
+        <li><span class="tag">마운트</span><span class="d">Secret을 파드에 디렉토리 마운트 → <code>TEMPORAL_TLS_*_PATH</code>가 읽음.</span></li>
+        <li><span class="tag">외부</span><span class="d">클러스터 밖 worker는 <b>Vault approle</b>로 직접 발급(cert-manager 미도달).</span></li>
+      </ol>
+    </div>
+    <div class="ptrack eso">
+      <h3>시크릿 조달 (ESO)</h3>
+      <p class="who">External Secrets Operator</p>
+      <ol>
+        <li><span class="tag">seed</span><span class="d">운영자가 <b>Vault KV</b>에 값을 시드(repo엔 <b>참조만</b>, 비밀값 없음).</span></li>
+        <li><span class="tag">sync</span><span class="d"><b>ESO</b>가 <code>ClusterSecretStore</code>로 KV → k8s Secret 동기화.</span></li>
+        <li><span class="tag">inject</span><span class="d">파드가 <code>envFrom</code>으로 주입받음.</span></li>
+        <li><span class="tag">rotate</span><span class="d"><code>refreshInterval</code> 주기로 갱신(반영엔 파드 재기동 필요).</span></li>
+      </ol>
+    </div>
+  </div>
+  <p class="pflow-note">⚠️ cert-manager는 <b>Secret만 갱신</b>하고 파드를 재기동하지 않는다. 앱이 cert를 시작 시 1회만 읽으면 갱신이 반영 안 됨 → hot-reload 또는 Reloader로 롤링 재기동 필요.</p>
+
+  <footer>Temporal Platform · reference architecture · neutralized template · 색: 보라=Temporal · 초록=데이터스토어 · 회색=플랫폼 · 자주=Vault</footer>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: '"Segoe UI",system-ui,-apple-system,sans-serif',
+      fontSize: '13px',
+      lineColor: '#6b7480',
+      clusterBkg: '#fbfbfd',
+      clusterBorder: '#c7ccd6',
+      titleColor: '#3a424e'
+    },
+    flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 42, rankSpacing: 52, padding: 10 }
+  });
+</script>
+</body>
+</html>

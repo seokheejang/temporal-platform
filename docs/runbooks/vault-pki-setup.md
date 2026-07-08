@@ -2,7 +2,7 @@
 
 > **상태: ✅ 구축 완료 (2026-06-11) — 1~4-1 실행됨.** Temporal mTLS용 공통 사설 CA를 사내 Vault(`vault.example.com`)의 PKI secrets engine으로 구축하는 절차.
 > 실행 기록·런북 대비 변경점은 아래 [실행 기록](#실행-기록-2026-06-11) 참고. 4-2(ClusterIssuer apply)·5(외부 worker)는 미실행.
-> 관련 설계: [../architecture/auth-pki-topology.html](../architecture/auth-pki-topology.html) (As-Is/To-Be) · [../architecture/auth-claim-mapping.md](../architecture/auth-claim-mapping.md) "CA / 인증서 토폴로지".
+> 관련 개념: [../architecture/concepts-essentials.html](../architecture/concepts-essentials.html) (§4 보안 - mTLS/PKI) · 용어는 [../glossary.md](../glossary.md) §6.
 > **개념 이해**(PKI engine이 뭔지·sign vs issue·TTL 층위·권한 모델): [../research/vault-pki-engine.md](../research/vault-pki-engine.md) ← 절차만 따라하기 전에 일독 권장.
 
 ## ⚠️ 실행 원칙

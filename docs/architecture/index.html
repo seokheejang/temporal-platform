@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>temporal-platform - 아키텍처</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif;
+           margin: 0; padding: 32px; color: #1b1b1f; background: #fafafa; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .sub { color: #666; font-size: 13px; margin: 0 0 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+    a.card { display: block; text-decoration: none; color: inherit; background: #fff;
+             border: 1px solid #e3e3e3; border-radius: 12px; padding: 18px 20px; transition: .15s; }
+    a.card:hover { border-color: #7B3FE4; box-shadow: 0 4px 14px rgba(123,63,228,.12); transform: translateY(-2px); }
+    .card h2 { font-size: 16px; margin: 0 0 6px; color: #2A0F4D; }
+    .card p { font-size: 13px; color: #555; margin: 0; line-height: 1.5; }
+    .tag { display: inline-block; font-size: 11px; background: #EADCF8; color: #5b2a9e;
+           border-radius: 5px; padding: 1px 7px; margin-bottom: 8px; }
+    .note { color: #888; font-size: 12px; margin-top: 24px; border-top: 1px solid #eee; padding-top: 14px; line-height:1.6; }
+    code { background: #f0f0f3; padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>temporal-platform - 아키텍처</h1>
+  <p class="sub">self-hosted Temporal on Kubernetes (Helm + ArgoCD). 핵심 아키텍처 문서.</p>
+
+  <div class="grid">
+    <a class="card" href="overview-topology.html">
+      <span class="tag" style="background:#EFEAFB;color:#4b2f9e;">전체 그림</span>
+      <h2>1. 전체 토폴로지</h2>
+      <p>이 플랫폼을 쓰면 그려지는 전반적인 그림. 외부 클라이언트(Web UI/SDK worker), Temporal 서버 4-role, DB(cnpg), worker, 플랫폼 공통(ArgoCD/cert-manager/ESO/Vault/Prometheus)이 한 클러스터 안에서 어떻게 연결되는지.</p>
+    </a>
+    <a class="card" href="concepts-essentials.html">
+      <span class="tag" style="background:#FCE7F3;color:#9d174d;">필수 개념</span>
+      <h2>2. 꼭 알아야 할 개념</h2>
+      <p>이 플랫폼을 다루기 전 최소한으로 알아야 할 것. Temporal 핵심(Cluster·Namespace·Task Queue·Worker), repo 구조(values 3-layer·umbrella), 보안(mTLS·PKI). 용어 전체는 glossary 참고.</p>
+    </a>
+  </div>
+
+  <p class="note">
+    전체 용어집은 <a href="../glossary.md"><code>docs/glossary.md</code></a>, 설계 결정은 <a href="../adr/"><code>docs/adr/</code></a>,
+    운영 절차는 <a href="../runbooks/"><code>docs/runbooks/</code></a>. 색 범례: 보라=Temporal · 파랑=k8s/플랫폼 · 초록=데이터스토어 · 회색=외부.
+  </p>
+</body>
+</html>

@@ -45,6 +45,7 @@ SDK worker 코드/이미지는 이 repo 밖(앱)에서 관리하고, 이 repo는
 
 | 문서 | 내용 |
 |------|------|
+| [docs/architecture/index.html](docs/architecture/index.html) | **아키텍처 그림** (전체 토폴로지 / 필수 개념) |
 | [docs/platform-assumptions.md](docs/platform-assumptions.md) | **이 repo가 전제하는 플랫폼 스택** (먼저 읽기) |
 | [services/example-service/README.md](services/example-service/README.md) | 작동 예제 서비스: 엔드포인트 / 확정값 / mTLS |
 | [docs/glossary.md](docs/glossary.md) | 용어집 (Temporal / k8s / auth) |
@@ -53,8 +54,7 @@ SDK worker 코드/이미지는 이 repo 밖(앱)에서 관리하고, 이 repo는
 | [docs/runbooks/](docs/runbooks/) | 운영 절차 (mTLS 적용 / namespace 등록 / Vault PKI 세팅) |
 | [docs/STATUS.md](docs/STATUS.md) | 배포 진행상황 추적 템플릿 |
 
-> 아키텍처 다이어그램(`docs/architecture/`)은 별도로 추가 예정이라 현재 repo에 없다.
-> 일부 문서의 `../architecture/...` 링크는 그때 연결된다.
+> 아키텍처는 핵심 문서만 간략히 담았다(`docs/architecture/`). 상세 다이어그램(인증 흐름·CI/CD·실측 토폴로지 등)은 필요 시 추가.
 
 ## 라이선스
 

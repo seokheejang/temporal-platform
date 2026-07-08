@@ -142,4 +142,4 @@ dev에서 **실제 수집 확인된 것**(2026-06-30):
 - 룰 채택 라벨: `app.kubernetes.io/managed-by: observability` (사용 환경의 Prometheus ruleSelector에 맞춰 조정).
 - 이 repo 메트릭 수집: [charts/worker/templates/servicemonitor.yaml](../charts/worker/templates/servicemonitor.yaml) · [services/example-service/dev/db/podmonitor.yaml](../services/example-service/dev/db/podmonitor.yaml)
 - 서버 메트릭 ServiceMonitor: 서버 wrapper values `temporal.server.metrics.serviceMonitor`
-- 모니터링 아키텍처: [docs/architecture/monitoring-stack.html](architecture/monitoring-stack.html)
+- 전체 토폴로지(메트릭 수집 경로 포함): [docs/architecture/overview-topology.html](architecture/overview-topology.html)

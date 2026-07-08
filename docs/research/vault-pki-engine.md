@@ -2,7 +2,7 @@
 
 > **목적**: vault에 구축한 Temporal mTLS CA(2026-06-11)를 *이해하고 재현하고 운영*하기 위한 개념 문서.
 > 실행 절차는 [../runbooks/vault-pki-setup.md](../runbooks/vault-pki-setup.md), 이 문서는 "그 절차가 왜 그렇게 생겼는지".
-> 다이어그램(As-Built 토폴로지): [../architecture/auth-pki-topology.html](../architecture/auth-pki-topology.html) · **개념 이해용(여권 비유·신뢰 체인·누가 갱신)**: [../architecture/auth-pki-explained.html](../architecture/auth-pki-explained.html)
+> 개념 다이어그램(신뢰 체인·mTLS 구간·누가 갱신): [../architecture/concepts-essentials.html](../architecture/concepts-essentials.html) (§4 보안)
 
 ## 0. 쉬운 용어 정리 — 여권 비유 (먼저 읽기)
 
