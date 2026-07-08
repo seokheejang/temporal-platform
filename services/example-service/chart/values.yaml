@@ -1,0 +1,59 @@
+# wrapper 자체 기본값 — 실제 운영 값은 3-layer가 공급 (ADR-0004/0005):
+#   $values/base/values-common.yaml → $values/services/example-service/values.yaml → $values/services/example-service/<env>/values.yaml
+# 규칙: upstream(temporalio/temporal) 서버 값은 모든 층에서 `temporal:` 키 아래.
+# 이 파일엔 wrapper 고유 토글만 둔다 (부속 리소스 on/off 등).
+
+# cert 이름·SAN 계산용 (release명 {env}-temporal-{svcName}-server 유도). 3-layer에서 override.
+env: dev
+svcName: example-service
+
+# 서버 mTLS (B3) — 양방향·cert-only 확정(§A1-bis). frontend(worker↔서버)+internode(서버↔서버).
+#   enabled=true → ① server-mtls-certificate.yaml이 cert-manager Certificate 발급(EKU Server+Client)
+#     → Secret(secretName) ② 3-layer values의 temporal.server.additionalVolumes/Mounts가 그 Secret을
+#     mountPath에 마운트 ③ temporal.server.config.tls(internode+frontend)가 그 경로를 읽음.
+#   ⚠️ enabled=false면 cert/마운트/config.tls 전부 미적용(평문 유지). dev는 현재 false —
+#     Python(activity-worker) worker mTLS 코드 미구현이라, 켜면 activity-worker 연결 끊김(서버·worker 동시 on 필요).
+#   ⚠️ 무중단 갱신: config.tls.refreshInterval(3-layer)로 서버가 파일 주기 재독. certData 인라인 금지.
+mtls:
+  enabled: false
+  secretName: temporal-server-tls # config.tls가 마운트해 읽을 Secret (3-layer mountPath와 짝)
+  issuerRef:
+    kind: ClusterIssuer
+    name: temporal-ca-issuer # dev Ready 확인(base/pki). EKU Server+Client 발급 검증됨
+  duration: 2160h # 90d (role temporal-server max_ttl)
+  renewBefore: 720h # 30d 전 cert-manager 자동 재발급 → Secret 갱신 → refreshInterval로 서버 재로드
+  privateKey:
+    algorithm: RSA
+    size: 2048
+
+# Web UI 외부 노출 (C2) — Cilium Gateway(shared-gateway)에 HTTPRoute로 web Service 연결.
+#   enabled=true → web-httproute.yaml이 HTTPRoute 생성(hostname → web:8080).
+#   ⚠️ 서버 mTLS면 web→frontend도 client cert 필요(values-mtls.yaml web.additionalEnv로 TEMPORAL_TLS_*).
+#   ⚠️ UI 무인증 — 외부 노출 시 SSO/proxy 보호는 C2 후속(지금은 노출만).
+uiRoute:
+  enabled: false
+  hostname: temporal-example-service.dev.k8s.example.com # README 확정 UI hostname
+  gateway: shared-gateway
+  gatewayNamespace: gateway-system
+
+# 외부 gRPC 노출 (C1) — frontend(7233)를 LoadBalancer Service(MetalLB)로 외부에 연다.
+#   Cilium Gateway가 TCPRoute 미지원이라 TCP는 LB Service로(조직 표준). shared-gateway(다른 repo)
+#   의존 없이 frontend ns에 자체 생성. enabled=true → frontend-grpc-lb.yaml이 LB Service 생성.
+#   ⚠️ loadBalancerIP 필수 명시(autoAssign 변동 방지). dev 공유 풀(192.0.2.0/24)에서 Temporal
+#     대역 .100~ 예약(기존 사용 IP와 충분히 이격 — 100번대로 안전 확보).
+#   ⚠️ hostname(external-dns)·외부 worker client cert(Vault approle, B4)는 C1 착수 시 — 지금 off.
+grpcLB:
+  enabled: false
+  loadBalancerIP: "192.0.2.100" # Temporal 대역 시작(dev 실측 충돌 없음). prod는 prod 풀에서 별도
+  hostname: "" # external-dns 도메인 — C1 착수 시 확정(예: temporal-grpc.dev.k8s.example.com)
+  sharedIP: "" # MetalLB allow-shared-ip — 다른 svc와 IP 공유 시만(보통 비움 = 전용 IP)
+
+# 가용성 알람 (서버 wrapper에 통합 — 별도 ArgoCD 앱 안 만듦). 설계: docs/alerting-design.md.
+#   enabled=true → alerts-rules.yaml(PrometheusRule up==0) + alerts-config.yaml(전용 Slack 라우팅) 생성.
+#   observability 엔진(Prometheus·Alertmanager)만 빌려씀(selector가 우리 CR 채택) — 룰·채널은 이 repo 소유.
+#   ⚠️ webhook Secret은 GitOps 밖 — 운영자가 로컬 kubectl로 직접 생성(이 차트 ns에 webhookSecretName·
+#     key=url). 절차: services/<svc>/<env>/alerts/create-webhook-secret.sh. webhook 평문 git 미유출.
+alerts:
+  enabled: false
+  webhookSecretName: temporal-example-service-alert-slack # 운영자 수동 생성 Secret 이름
+  webhookSecretKey: url

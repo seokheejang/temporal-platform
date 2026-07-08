@@ -1,0 +1,18 @@
+# ArgoCD AppProject — Temporal 인프라 전용
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: temporal
+  namespace: argocd # dev 실측: ArgoCD는 argocd ns
+spec:
+  description: Temporal per-service infra (managed by temporal-platform)
+  sourceRepos:
+    - https://github.com/seokheejang/temporal-platform.git
+    # upstream 차트(go.temporal.io)는 wrapper의 dependency라 Application source가 아님 —
+    # repo-server의 아웃바운드만 필요 (sourceRepos 등록 불필요)
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: 'dev-temporal-*' # {env}-temporal-{svc} 패턴만 허용 (조직 컨벤션: env prefix, dev 클러스터라 dev만)
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace # CreateNamespace=true가 ns를 만들 수 있도록

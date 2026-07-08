@@ -1,0 +1,79 @@
+# codecentric/keycloakx 차트 values — Keycloak 26.x (chart 7.2.0 / app 26.6.2 기준 작성, 2026-06-11)
+# 전제: TLS는 Cilium shared-gateway에서 종단(wildcard LE cert) → Keycloak은 클러스터 내부 HTTP + proxy headers.
+# MVP는 replicas 1 (HA·cache 클러스터링은 prod 단계에서 — pre-deploy-plan K5/prod HA 참고).
+
+replicas: 1
+
+# http-enabled·relative-path 등은 차트가 KC_* env로 주입 (proxy.enabled·http 블록 기반) — command는 start만
+command:
+  - "/opt/keycloak/bin/kc.sh"
+  - "start"
+
+extraEnv: |
+  - name: KC_BOOTSTRAP_ADMIN_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: keycloak-admin
+        key: username
+  - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: keycloak-admin
+        key: password
+  - name: KC_HOSTNAME
+    value: "https://keycloak.dev.k8s.example.com/auth"
+  # KC_PROXY_HEADERS는 proxy.mode(xforwarded)가 주입 — 여기 중복 정의 금지
+  # JGroups 클러스터링은 replicas>1에서 필요 — 그때 jgroups dns query env 추가
+
+# DB: 전용 cnpg (cnpg-cluster.yaml) — rw 서비스로 접속, 자격증명은 ESO 동기화 Secret
+database:
+  vendor: postgres
+  hostname: keycloak-pg-rw.keycloak.svc.cluster.local
+  port: 5432
+  database: keycloak
+  username: keycloak
+  existingSecret: keycloak-pg-app
+  existingSecretKey: password
+
+dbchecker:
+  enabled: true # DB 준비 전 기동 방지 init container
+
+# /auth prefix는 keycloakx 기본값 유지 → issuer는 https://keycloak.dev.k8s.example.com/auth/realms/<realm>
+http:
+  relativePath: "/auth"
+
+proxy:
+  enabled: true
+  mode: xforwarded
+
+# 노출: 차트 내장 HTTPRoute로 shared-gateway에 연결 (기존 *.dev.k8s.example.com 패턴)
+# backendRef는 차트가 자기 Service(<fullname>-http)로 자동 생성 — rules엔 matches/filters만
+httpRoute:
+  enabled: true
+  servicePort: 80
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: shared-gateway
+      namespace: gateway-system
+  hostnames:
+    - keycloak.dev.k8s.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /auth
+  console:
+    enabled: false
+
+metrics:
+  enabled: true
+# serviceMonitor는 관측성 단계(D1)에서 enable
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 2Gi

@@ -1,0 +1,19 @@
+# Helm
+charts/**/charts/          # helm dependency build로 받은 subchart (tgz)
+*.tgz
+
+# 로컬/임시
+*.log
+.DS_Store
+*.local.yaml               # 로컬 전용 오버라이드 (커밋 금지)
+# prod 이식 작업 플랜·스크래치 (로컬 전용, 커밋 금지)
+prod-work/
+
+# 시크릿 (평문 시크릿은 절대 커밋 금지 — 시크릿 관리 방식 확정 전 안전망)
+*secret*.yaml
+!**/templates/*secret*.yaml
+# ExternalSecret CR은 Vault 경로 참조만 (비밀값 없음)
+!**/externalsecrets.yaml
+
+# Vault Toknes
+.token*

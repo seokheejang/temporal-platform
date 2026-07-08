@@ -1,0 +1,7 @@
+# 공용 generic SDK worker chart — 전 서비스 공유 (서비스별 차이는 values로만)
+# worker 1개 = services/<svc>/<env>/workers/<name>/values.yaml 1개 = ArgoCD 앱 1개
+apiVersion: v2
+name: temporal-worker
+description: Generic Temporal SDK worker deployment (values-only per worker)
+type: application
+version: 0.1.0

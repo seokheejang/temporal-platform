@@ -1,0 +1,29 @@
+{{- if .Values.metrics.enabled }}
+{{/*
+  ServiceMonitor (방식 A — temporal-server SM과 동일 형태, dev 실측 기준).
+  ⚠️ dev Prometheus Operator는 annotation 무시·ServiceMonitor만 보고, serviceMonitorSelector가
+     release 라벨(kube-prometheus-stack)을 요구 → additionalLabels에 release 必(빠지면 미수집).
+  selector는 이 worker의 selectorLabels(name+instance)로 위 metrics Service를 정확히 매칭.
+  CRD(monitoring.coreos.com/v1)는 kube-prometheus-stack이 설치 — dev 존재 확인됨.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "temporal-worker.fullname" . }}
+  labels:
+    {{- include "temporal-worker.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  jobLabel: {{ include "temporal-worker.fullname" . }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "temporal-worker.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

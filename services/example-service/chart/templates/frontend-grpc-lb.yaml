@@ -1,0 +1,41 @@
+{{- if .Values.grpcLB.enabled }}
+{{- /*
+외부 gRPC 노출 (C1) — frontend(7233)를 LoadBalancer Service로 외부에 연다.
+⚠️ Cilium Gateway는 TCPRoute 미지원(cilium/cilium#21929) → TCP 외부 노출은 LB Service(MetalLB)로
+한다(다른 TCP 워크로드도 동일 패턴). 그래서 별도 공용 게이트웨이(다른 repo)에
+의존하지 않고 이 차트가 frontend와 같은 ns에 LB Service를 자체 생성 → repo 종속성 없음.
+⚠️ mTLS passthrough: raw TCP라 client cert가 frontend까지 그대로 전달 → 서버 mTLS 그대로 동작
+(Gateway TLS 종단 문제 없음). 외부 SDK worker가 client cert로 직접 frontend에 붙는다.
+⚠️ loadBalancerIP 명시 고정 — MetalLB autoAssign이 임의 배정하면 IP 변동/충돌. dev 실측 기준
+공유 풀(192.0.2.0/24)에서 Temporal 대역 .100~ 예약(기존 사용 IP와 충분히 이격).
+⚠️ 외부 worker용 client cert 발급(Vault approle)은 별개(B4) — 이 LB는 '노출'만, cert는 외부에서 준비.
+*/}}
+{{- $release := printf "%s-temporal-%s-server" .Values.env .Values.svcName }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $release }}-frontend-grpc-lb
+  labels:
+    app.kubernetes.io/part-of: temporal-platform
+    app.kubernetes.io/component: frontend-grpc-lb
+  annotations:
+    {{- if .Values.grpcLB.sharedIP }}
+    metallb.universe.tf/allow-shared-ip: {{ .Values.grpcLB.sharedIP | quote }}
+    {{- end }}
+    {{- with .Values.grpcLB.hostname }}
+    external-dns.alpha.kubernetes.io/hostname: {{ . | quote }}
+    {{- end }}
+spec:
+  type: LoadBalancer
+  loadBalancerIP: {{ required "grpcLB.enabled=true 이면 grpcLB.loadBalancerIP 필수(MetalLB 충돌 회피 — 명시 고정)" .Values.grpcLB.loadBalancerIP | quote }}
+  # frontend pod 직접 선택 — 기존 frontend ClusterIP Service와 동일 selector(dev 실측).
+  selector:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/instance: {{ $release }}
+    app.kubernetes.io/name: temporal
+  ports:
+    - name: grpc
+      port: 7233
+      targetPort: 7233
+      protocol: TCP
+{{- end }}

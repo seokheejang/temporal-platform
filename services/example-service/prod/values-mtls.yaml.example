@@ -1,0 +1,102 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 서버 mTLS 토글 (B3 · §A1-bis 양방향·cert-only) — dev
+#
+# 사용법: mTLS를 켤 때 이 파일을 같은 디렉토리에 values-mtls.yaml(확장자 .example 제거)로
+#   복사하면 ArgoCD가 자동 인식(applicationset.yaml ignoreMissingValueFiles). 평문으로 되돌리려면
+#   values-mtls.yaml 삭제. → 파일 존재 = mTLS on, 없음 = 평문. 단일 토글.
+#
+# ⚠️ 선결조건(이거 없이 켜면 장애):
+#   1. Python(activity-worker) worker mTLS dial 코드 — 현재 미구현(평문). 켜면 activity-worker 연결 끊김.
+#      서버·worker 양쪽이 짝으로 mTLS여야 함(worker values tls.enabled:true + certManager.enabled:true).
+#   2. worker 차트 mTLS 토글도 함께 on (services/.../workers/*/values.yaml temporal.tls.enabled:true).
+#
+# 동작: server-mtls-certificate.yaml(wrapper)이 cert-manager로 서버 cert(Secret temporal-server-tls)
+#   발급 → 아래 additionalVolumes/Mounts가 /etc/temporal/tls에 마운트 → config.tls가 그 경로 읽음.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# wrapper 토글 on → server-mtls-certificate.yaml이 Certificate 발급
+mtls:
+  enabled: true
+
+# 공식 차트(temporalio/temporal)로 전달되는 서버 설정 — `temporal:` 키 아래(ADR-0005)
+temporal:
+  # Web UI도 frontend에 client로 붙으므로 mTLS면 cert 필요. 서버 cert Secret(temporal-server-tls,
+  # client auth EKU 포함)을 web에도 마운트하고 UI 스킴 env로 mTLS 켠다(UI는 TEMPORAL_TLS_CA/CERT/KEY —
+  # worker의 *_PATH와 다른 자체 스킴, temporalio/ui 2.49.1 실측). 안 하면 UI가 frontend에 평문 붙어
+  # mTLS 서버에 막혀 namespace/workflow를 못 보여줌.
+  web:
+    additionalVolumes:
+      - name: temporal-server-tls
+        secret:
+          secretName: temporal-server-tls
+    additionalVolumeMounts:
+      - name: temporal-server-tls
+        mountPath: /etc/temporal/tls
+        readOnly: true
+    additionalEnv:
+      - name: TEMPORAL_TLS_CA
+        value: /etc/temporal/tls/ca.crt
+      - name: TEMPORAL_TLS_CERT
+        value: /etc/temporal/tls/tls.crt
+      - name: TEMPORAL_TLS_KEY
+        value: /etc/temporal/tls/tls.key
+      # frontend가 IP로 응답할 수 있으니 serverName 고정(cert SAN의 공통 이름) — internode와 동일 이유.
+      - name: TEMPORAL_TLS_SERVER_NAME
+        value: dev-temporal-example-service-server.dev-temporal-example-service.svc.cluster.local
+  server:
+    # cert-manager가 만든 Secret(temporal-server-tls)을 서버 pod에 디렉토리째 마운트.
+    # ⚠️ subPath 금지 — subPath면 Secret 갱신이 파일에 전파 안 돼 무중단 갱신 깨짐.
+    additionalVolumes:
+      - name: temporal-server-tls
+        secret:
+          secretName: temporal-server-tls # wrapper mtls.secretName과 일치
+    additionalVolumeMounts:
+      - name: temporal-server-tls
+        mountPath: /etc/temporal/tls
+        readOnly: true
+    # ⚠️ mTLS 켜면 frontend 기본 readinessProbe(gRPC 7233)가 client cert 없이 붙어 handshake 실패
+    # → frontend 영구 0/1 → Service endpoint 전환 안 됨(실측 2026-06-25). TCP 소켓 체크로 교체:
+    # TCP는 TLS handshake를 안 해서 mTLS여도 통과(liveness가 이미 tcpSocket 방식). 평문일 땐
+    # 이 파일이 없어 기본 gRPC probe 유지 — mTLS일 때만 적용.
+    # ⚠️ frontend는 자체 server.frontend.readinessProbe(gRPC)를 가져 전역 server.readinessProbe보다
+    # 우선됨 → frontend에 직접 override해야 함(전역에 넣으면 frontend엔 안 먹힘, 실측). internal-frontend는
+    # enabled=false라 불필요. history/matching/worker는 자체 readinessProbe 없어 gRPC 미사용(영향 없음).
+    frontend:
+      readinessProbe:
+        # ⚠️ helm valueFiles는 deep merge — 차트 기본 grpc:를 안 지우면 tcpSocket과 공존해 grpc 우선됨.
+        # grpc: null 로 명시 제거해야 tcpSocket만 남음(실측 2026-06-25).
+        grpc: null
+        initialDelaySeconds: 150
+        tcpSocket:
+          port: rpc
+    config:
+      tls:
+        # ⚠️ 무중단 갱신 — 서버가 이 주기로 디스크에서 cert 재독(certData 인라인은 reload 안 됨).
+        # cert-manager가 renewBefore에 Secret 갱신 → 파일 갱신 → 서버가 refreshInterval마다 재로드.
+        refreshInterval: 1h
+        internode: # 서버↔서버(4-role)
+          server:
+            certFile: /etc/temporal/tls/tls.crt
+            keyFile: /etc/temporal/tls/tls.key
+            requireClientAuth: true # 양방향 — 상대 role의 client cert 검증
+            clientCaFiles:
+              - /etc/temporal/tls/ca.crt # 단일 Root(Vault) 신뢰루트
+          client:
+            # ⚠️ internode는 Pod IP로 dial → cert에 IP SAN 없어 검증 실패. serverName을 공통 이름으로
+            # 고정하면 IP dial이어도 이 이름으로 검증(SAN에 추가됨 — server-mtls-certificate.yaml).
+            # 값 = {release}.{ns}.svc.cluster.local. ⚠️ env(dev)·svc 바뀌면 이 값도 맞춰야 함.
+            serverName: dev-temporal-example-service-server.dev-temporal-example-service.svc.cluster.local
+            rootCaFiles:
+              - /etc/temporal/tls/ca.crt
+        frontend: # worker↔서버
+          server:
+            certFile: /etc/temporal/tls/tls.crt
+            keyFile: /etc/temporal/tls/tls.key
+            requireClientAuth: true # 양방향 — worker의 client cert 요구(cert-only 신원)
+            clientCaFiles:
+              - /etc/temporal/tls/ca.crt # worker cert도 같은 Root에서 발급(cert-manager temporal-ca-issuer)
+          client:
+            # 서버 내부에서 frontend로 가는 client(history/matching→frontend 등)도 IP dial → 동일 고정.
+            serverName: dev-temporal-example-service-server.dev-temporal-example-service.svc.cluster.local
+            rootCaFiles:
+              - /etc/temporal/tls/ca.crt

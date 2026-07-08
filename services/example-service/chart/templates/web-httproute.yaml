@@ -1,0 +1,31 @@
+{{- if .Values.uiRoute.enabled }}
+{{- /*
+Temporal Web UI 외부 노출 (C2) — Cilium Gateway(shared-gateway)에 HTTPRoute로 web Service 연결.
+keycloak HTTPRoute와 동일 패턴(조직 컨벤션, dev 실측). hostname은 확정값(README UI hostname).
+⚠️ web→frontend는 별개 — 서버 mTLS면 web도 client cert 필요(values-mtls.yaml web.additionalEnv).
+⚠️ 무인증 — UI는 기본 인증 없음. 외부 노출 시 SSO/proxy 보호는 별도(C2 후속). 지금은 노출만.
+*/}}
+{{- $release := printf "%s-temporal-%s-server" .Values.env .Values.svcName }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $release }}-web
+  labels:
+    app.kubernetes.io/part-of: temporal-platform
+    app.kubernetes.io/component: web
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ .Values.uiRoute.gateway }}
+      namespace: {{ .Values.uiRoute.gatewayNamespace }}
+  hostnames:
+    - {{ .Values.uiRoute.hostname | quote }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $release }}-web
+          port: 8080
+          weight: 1
+{{- end }}

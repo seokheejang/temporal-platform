@@ -1,0 +1,40 @@
+# example-service / orchestration-worker (Go) / dev
+# 차트: charts/worker (공용 generic, ADR-0006) — 여기는 values만. 앱 시크릿 없음(Temporal 연결만).
+# CI/CD: 앱 repo GHA가 develop push→dev 이미지 빌드 후 .image.tag만 yq로 bump(GitOps).
+
+image:
+  repository: "registry.example.com/repository/example/example-service/orchestration-worker"
+  tag: "v1.0.0" # CI가 갱신 (dev=<shortsha>-<run_number> / prod=v1.0.0)
+replicaCount: 1
+# 자원 — dev idle 실측(2026-06-25): 0m / 11Mi(Go, 오케스트레이션만). ⚠️ limits는 부하 데이터 없음 →
+# 보수적 상한, 실부하 측정 후 조정 필요.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+temporal:
+  # ⚠️ worker는 별도 ns(-worker)라 서버 ns를 넘는 FQDN으로 지정(short name 불가).
+  address: "prod-temporal-example-service-server-frontend.prod-temporal-example-service.svc.cluster.local:7233"
+  # Temporal namespace = 앱 도메인 값(A2, 앱 코드 dev값). ⚠️ 서버에 이 namespace 선행 등록 필요
+  # (temporal operator namespace create) — 미등록 시 worker 접속 거부.
+  namespace: "example-service-prod"
+  # mTLS 양방향·cert-only(§A1-bis). 서버도 동시 on(dev/values-mtls.yaml) — 짝이 안 맞으면 연결 끊김.
+  # in-cluster라 cert-manager가 client cert 발급(Vault 접속정보 불필요).
+  tls:
+    enabled: true
+    certManager:
+      enabled: true
+env:
+  # APP_PROFILE — Go가 application-<profile>.yaml을 덧입힘. profile-only 앱 설정 누락 방지로 명시.
+  - name: APP_PROFILE
+    value: "prod"
+# 앱 시크릿 없음(config.go 실측: APP_PROFILE·TEMPORAL_*뿐). 생기면 activity-worker의 externalSecret 패턴 복제
+# (charts/worker가 범용 지원 — 차트 수정 불필요).
+
+# 메트릭 수집 (headless Service + ServiceMonitor). Go worker는 dev/prod profile이
+# 0.0.0.0:9090에 Prometheus 노출 고정(env 제어 없음, 앱 .env.example 명시)
+metrics:
+  enabled: true

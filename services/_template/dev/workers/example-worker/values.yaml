@@ -1,0 +1,19 @@
+# <worker-name> / dev — SDK worker 1개 = 이 디렉토리 1개 = ArgoCD 앱 1개
+# 앱 이름: dev-temporal-<svc>-worker-<worker-name> (argocd/dev/applicationset-workers.yaml)
+# 차트: charts/worker (공용) — 여기는 values만 둔다
+#
+# CI/CD 연동: 앱 repo의 CI가 이미지 빌드 후 image.tag만 이 파일에 커밋(GitOps).
+#   예: yq -i '.image.tag = "<new-tag>"' services/<svc>/dev/workers/<name>/values.yaml
+
+image:
+  repository: <registry>/<svc>-<worker-name> # 예: harbor.example.com/example-service-ingest
+  tag: "" # ← CI가 갱신 (수동 배포 시에만 직접 지정)
+
+replicaCount: 1 # dev 최소
+
+temporal:
+  address: "" # 서버 frontend Service 실측 후 지정 (예: <server-release>-frontend:7233)
+  namespace: "" # 서버에 등록한 Temporal namespace
+
+# DB 자격증명처럼 시크릿이 필요하면 ESO ExternalSecret을 db/ 패턴대로 만들고 envFrom으로 참조
+envFrom: []

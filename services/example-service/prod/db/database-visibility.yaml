@@ -1,0 +1,12 @@
+# temporal_visibility — cnpg 선언적 DB 관리 (Database CR, dev CRD 실측 확인)
+# initdb는 DB 1개(temporal)만 만들므로 두 번째 DB는 선언형으로 reconcile.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: temporal-pg-visibility
+  namespace: prod-temporal-example-service
+spec:
+  cluster:
+    name: temporal-pg
+  name: temporal_visibility
+  owner: temporal

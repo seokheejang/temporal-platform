@@ -1,0 +1,223 @@
+{
+  "uid": "temporal-developer-eventautomation",
+  "title": "Temporal — Developer view (example-service)",
+  "description": "워크플로우·액티비티 개발자 관점 핵심 지표. 시스템 자원(CPU/heap) 대신 '제때 처리하나 / 실패하나 / 재시도 쌓이나'에 집중. docs/worker-key-metrics.md 기반.",
+  "tags": ["temporal", "example-service", "developer", "worker"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Datasource",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "worker",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(up{job=~\".*-worker-.*-metrics\"}, job)",
+        "label": "Worker job",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*-worker-.*-metrics",
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(service_requests, namespace)",
+        "label": "Temporal namespace",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "",
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "### Temporal 개발자 대시보드\n워크플로우·액티비티를 작성/운영하는 개발자 관점. **① 제때 처리하나 · ② 실패하나 · ③ 재시도 쌓이나**. 자원 지표(CPU/heap/goroutine)는 Temporal Server 대시보드에 있음.\n\n⚠️ **worker별 SDK가 달라 latency 쿼리 방식이 다름**(실측 2026-07-01): **workflow(Go SDK/tally)** = summary(`quantile` 라벨), **activity-worker(Python Core SDK)** = **histogram**(`_bucket`, **밀리초 단위**, `histogram_quantile` 사용). counter도 Go는 `_total` 접미사 있고 Python은 없음. 근거: `docs/worker-key-metrics.md`"
+      }
+    },
+
+    { "type": "row", "title": "① 제때 처리하나 — 지연 / 워커 부족", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 3 } },
+    {
+      "type": "timeseries",
+      "title": "Workflow task schedule-to-start p95/p99 (워커 부족 1차 신호)",
+      "description": "태스크가 큐에 올라와서 워커가 집어들기까지의 지연. 튀는데 CPU가 한가하면 → poller/slot 부족이지 자원 문제 아님.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "max(temporal_workflow_task_schedule_to_start_latency_seconds{job=~\"$worker\", quantile=\"0.95\"})", "legendFormat": "p95", "refId": "A" },
+        { "expr": "max(temporal_workflow_task_schedule_to_start_latency_seconds{job=~\"$worker\", quantile=\"0.99\"})", "legendFormat": "p99", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Activity schedule-to-start p95/p99 (액티비티 워커 부족 신호)",
+      "description": "액티비티 태스크가 큐에 올라와서 워커가 집어들기까지 지연. workflow와 별개 worker/task queue라 따로 봐야 함. ⚠️ Python Core SDK는 histogram·밀리초 단위(실측 2026-07-01) — quantile 라벨 아님, histogram_quantile 사용.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, task_queue) (rate(temporal_activity_schedule_to_start_latency_bucket{job=~\"$worker\"}[5m])))", "legendFormat": "{{task_queue}} p95", "refId": "A" },
+        { "expr": "histogram_quantile(0.99, sum by (le, task_queue) (rate(temporal_activity_schedule_to_start_latency_bucket{job=~\"$worker\"}[5m])))", "legendFormat": "{{task_queue}} p99", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task queue backlog (approximate_backlog_count)",
+      "description": "task queue에 실제 대기 중인 태스크의 서버측 근사(matching). 큐별·태스크종류별. 지속 상승 = 소비 < 생산. ⚠️ task_lag_per_tl은 파티션별 gauge라 sum하면 중복 합산돼 부풀려짐(공식 temporalio/temporal#3143·#9945) → 실제 backlog는 approximate_backlog_count 사용(dev 실측 2026-07-01: 평시 0). taskqueue 라벨은 파티션 무관 깔끔한 큐명(partition은 별도 라벨). 취소·타임아웃 태스크가 head 도달 전까지 남아 소폭 과대계상 가능.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "sum by (taskqueue, task_type) (approximate_backlog_count)", "legendFormat": "{{taskqueue}} ({{task_type}})", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Sync Match Rate (목표 >99%)",
+      "description": "태스크가 DB(persistence) 안 거치고 대기 중인 워커에게 바로 매칭되는 비율. 떨어지면 워커 부족 → DB 경유 → 지연·부하 증가. (event history는 항상 DB 영속화 — 이건 태스크 디스패치 경로만.)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0.95 }, { "color": "green", "value": 0.99 } ] }
+        }
+      },
+      "targets": [
+        { "expr": "sum(rate(poll_success_sync{namespace=~\"$namespace\"}[5m])) / clamp_min(sum(rate(poll_success{namespace=~\"$namespace\"}[5m])), 1)", "legendFormat": "sync match rate", "refId": "A" }
+      ]
+    },
+
+    { "type": "row", "title": "② 내 코드가 실패하나 — 비즈니스 정확도 / 배포 사고", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 } },
+    {
+      "type": "timeseries",
+      "title": "Workflow completed / failed (rate)",
+      "description": "워크플로우 실패율. failed가 completed 대비 튀면 비즈니스 로직/입력 문제.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "sum(rate(temporal_workflow_completed_total{job=~\"$worker\"}[5m]))", "legendFormat": "completed", "refId": "A" },
+        { "expr": "sum(rate(temporal_workflow_failed_total{job=~\"$worker\"}[5m]))", "legendFormat": "failed", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Workflow task execution FAILED (rate) — ⚠️ non-determinism 감지",
+      "description": "워크플로우 태스크 실패. 배포로 워크플로우 코드를 바꿨을 때의 non-determinism 에러가 여기 잡힘. 배포 직후 튀면 → versioning 실수 신호. 배포 사고를 가장 빨리 감지하는 지표. ※ 평소엔 0 라인이 정상(에러가 한 번도 안 나면 counter 시리즈가 없어 원래 No data — `or on() vector(0)`으로 0을 채워 '수집 안 됨'과 구분).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.01 } ] }
+        }
+      },
+      "targets": [
+        { "expr": "sum(rate(temporal_workflow_task_execution_failed_total{job=~\"$worker\"}[5m])) or on() vector(0)", "legendFormat": "wf task failed", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Activity execution latency p95 (activity_type별)",
+      "description": "액티비티 함수가 '실행 시작 ~ 완료'까지 걸린 순수 실행 시간(대기·재시도 제외). 튀면 내 액티비티 코드/외부 호출(LLM 등)이 느린 것. ⚠️ Python Core SDK histogram·ms(실측).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, activity_type) (rate(temporal_activity_execution_latency_bucket{job=~\"$worker\"}[5m])))", "legendFormat": "{{activity_type}} p95", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Activity 실행 실패 (endtoend 성공 대비 실행 횟수 차이)",
+      "description": "⚠️ Python Core SDK는 activity 실패 counter를 노출하지 않음(실측 2026-07-01 — activity 메트릭은 execution_latency/schedule_to_start/succeed_endtoend/task_received 4종뿐). 실패는 '총 실행 횟수(execution_latency_count) − 최종 성공 횟수(succeed_endtoend_count)'로 근사 — 재시도·최종실패 합. 정확한 최종실패는 Workflow completed/failed 패널·history 참조.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "sum by (activity_type) (rate(temporal_activity_execution_latency_count{job=~\"$worker\"}[5m])) - sum by (activity_type) (rate(temporal_activity_succeed_endtoend_latency_count{job=~\"$worker\"}[5m]))", "legendFormat": "{{activity_type}} 실패·재시도", "refId": "A" }
+      ]
+    },
+
+    { "type": "row", "title": "③ 재시도·타임아웃이 조용히 쌓이나 — 성공하는 실패", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 } },
+    {
+      "type": "timeseries",
+      "title": "Activity 실행 시도율 (task_received — 재시도 포함)",
+      "description": "액티비티 태스크 수신 rate. 재시도할 때마다 증가하므로, 정상 처리량 대비 급증하면 외부 의존성 불안정(재시도 폭증)의 조기 경보. ⚠️ Python Core SDK counter(실측) — _total 접미사 없음. 전용 retry counter는 없어 이 지표로 대용.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 38 },
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "sum by (activity_type) (rate(temporal_activity_task_received{job=~\"$worker\"}[5m]))", "legendFormat": "{{activity_type}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Workflow end-to-end latency p95/p99 (사용자 체감)",
+      "description": "워크플로우 시작~완료 전체 소요. 대기+실행+재시도 전부 포함. schedule-to-start·execution은 정상인데 이게 튀면 → 재시도가 많이 돌고 있음.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 38 },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "max(temporal_workflow_endtoend_latency_seconds{job=~\"$worker\", quantile=\"0.95\"})", "legendFormat": "p95", "refId": "A" },
+        { "expr": "max(temporal_workflow_endtoend_latency_seconds{job=~\"$worker\", quantile=\"0.99\"})", "legendFormat": "p99", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Sticky cache hit %",
+      "description": "캐시 미스 시 full history replay → 지연·부하. 낮으면 워커 재시작 잦거나 캐시 용량 부족.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 46 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 80 }, { "color": "green", "value": 95 } ] }
+        }
+      },
+      "targets": [
+        { "expr": "100 * sum(rate(temporal_sticky_cache_hit_total{job=~\"$worker\"}[5m])) / clamp_min(sum(rate(temporal_sticky_cache_hit_total{job=~\"$worker\"}[5m])) + sum(rate(temporal_sticky_cache_total_forced_eviction_total{job=~\"$worker\"}[5m])), 1)", "legendFormat": "hit %", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task slots used / available · Pollers",
+      "description": "슬롯이 소진되면(available≈0) 새 태스크를 못 받음 → schedule-to-start 상승. poller 수와 함께 스케일링 판단.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 46 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } } },
+      "targets": [
+        { "expr": "sum(temporal_worker_task_slots_used{job=~\"$worker\"})", "legendFormat": "slots used", "refId": "A" },
+        { "expr": "sum(temporal_worker_task_slots_available{job=~\"$worker\"})", "legendFormat": "slots available", "refId": "B" },
+        { "expr": "sum(temporal_num_pollers{job=~\"$worker\"})", "legendFormat": "pollers", "refId": "C" }
+      ]
+    }
+  ]
+}

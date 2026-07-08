@@ -1,0 +1,19 @@
+# Temporal mTLS용 Vault PKI ClusterIssuer — dev (dev-cluster) 전용 (런북 4-2)
+# 환경별 차이는 auth mountPath뿐 (Vault 서버·PKI 경로는 dev/prod 공통). prod는 clusterissuer-temporal-ca-issuer-prod.yaml 참고.
+# - Vault 측 선행 작업(pki_temporal_int mount · temporal-pki policy · k8s auth role): 2026-06-11 구축 완료.
+# - ✅ 2026-06-11 dev 적용 완료 — Ready=True ("Vault verified").
+#   사전 실측: SA cert-manager/cert-manager 일치 · cert-manager v1.17.2 · tokenrequest RBAC(helm 기본) 존재.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: temporal-ca-issuer
+spec:
+  vault:
+    server: https://vault.example.com
+    path: pki_temporal_int/sign/temporal-server
+    auth:
+      kubernetes:
+        mountPath: /v1/auth/kubernetes-dev # 기존 auth mount 재활용
+        role: cert-manager-temporal
+        serviceAccountRef:
+          name: cert-manager

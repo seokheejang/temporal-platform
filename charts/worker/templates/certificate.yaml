@@ -1,0 +1,34 @@
+{{- if and .Values.temporal.tls.enabled .Values.temporal.tls.certManager.enabled }}
+{{- /*
+in-cluster worker mTLS — cert-manager가 ClusterIssuer(temporal-ca-issuer)로 client cert를 발급·갱신.
+워커는 Vault 접속정보가 필요 없다(cert-manager가 대신 Vault PKI를 호출). 이 Certificate가 만든
+Secret(kubernetes.io/tls: ca.crt/tls.crt/tls.key)을 deployment가 mountPath에 디렉토리째 마운트하고,
+TEMPORAL_TLS_*_PATH env가 그 파일을 가리킨다. usages=client auth만(worker는 클라이언트).
+참고: 다른 워크로드의 cert도 동일 패턴으로 처리한다(Certificate→kubernetes.io/tls Secret→볼륨 마운트).
+*/}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "temporal-worker.fullname" . }}-tls
+  labels:
+    {{- include "temporal-worker.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "temporal-worker.tlsSecretName" . }}
+  # ⚠️ commonName 생략 — SAN(dnsNames)만 사용. 이유 2가지(실측 2026-06-25):
+  #   ① X.509 commonName은 64바이트 제한 → worker FQDN(~100자)이 초과해 cert-manager webhook 거부.
+  #   ② Vault role(temporal-server)은 평이름 commonName을 거부(allowed_domains=svc.cluster.local 등).
+  # SAN의 FQDN이 svc.cluster.local 서브도메인이라 Vault role 통과 + mTLS는 SAN 기반이라 신원 식별 OK.
+  dnsNames:
+    - {{ include "temporal-worker.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  duration: {{ .Values.temporal.tls.certManager.duration }}
+  renewBefore: {{ .Values.temporal.tls.certManager.renewBefore }}
+  privateKey:
+    algorithm: {{ .Values.temporal.tls.certManager.privateKey.algorithm }}
+    size: {{ .Values.temporal.tls.certManager.privateKey.size }}
+  usages:
+    - client auth # worker = 클라이언트. server auth 불필요(inbound 없음)
+  issuerRef:
+    kind: {{ .Values.temporal.tls.certManager.issuerRef.kind }}
+    name: {{ .Values.temporal.tls.certManager.issuerRef.name }}
+    group: cert-manager.io
+{{- end }}

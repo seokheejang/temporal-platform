@@ -1,0 +1,40 @@
+# ArgoCD ApplicationSet — Temporal 서비스별 DB 앱 (ADR-0005 §1: DB는 서버와 별도 앱)
+# 단위: services/<svc>/<env>/db/ 디렉토리 1개 = Application 1개 (cnpg Cluster + Database CR + ESO)
+#       (env-first 구조 — env 디렉토리가 그 env의 전부를 담음, svc 루트는 env 불변)
+#   ※ 알람(PrometheusRule·AlertmanagerConfig)은 별도 앱 아님 — 서버 wrapper 차트에 통합(앱 수 최소화).
+# ⚠️ 앱 간 순서: DB 앱을 먼저 sync·healthy 확인 후 서버 앱 sync (MVP는 수동 — automated 전환 시 재검토)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: temporal-databases
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/seokheejang/temporal-platform.git
+        revision: HEAD
+        directories:
+          - path: services/*/prod/db # MVP: dev만 (prod 등록 후 확장)
+          - path: services/_template/*/db # ⚠️ 실측: **도 세그먼트 1개만 매칭(_template/dev/db 미커버) — 4세그먼트 패턴 명시 필수
+            exclude: true
+  template:
+    metadata:
+      # services/<svc>/<env>/db → segments[1]=svc, segments[2]=env (basename은 'db')
+      # 명명 체계: {env}-temporal-{svc}-{component} (component = server | db | worker-{name})
+      name: '{{ index .path.segments 2 }}-temporal-{{ index .path.segments 1 }}-db'
+    spec:
+      project: temporal
+      source:
+        repoURL: https://github.com/seokheejang/temporal-platform.git
+        targetRevision: HEAD
+        path: '{{ .path.path }}'
+        directory:
+          recurse: false
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ index .path.segments 2 }}-temporal-{{ index .path.segments 1 }}' # 조직 컨벤션: env가 prefix (dev-* 실측)
+      syncPolicy:
+        syncOptions:
+          - CreateNamespace=true

@@ -1,0 +1,105 @@
+# temporal-worker chart 기본값 — worker별 실값은 services/<svc>/<env>/workers/<name>/values.yaml
+# ⚠️ image.tag는 CI가 GitOps로 갱신하는 필드 (사람이 직접 수정하지 않음)
+
+image:
+  repository: "" # 필수 — worker values에서 지정
+  tag: "" # 필수 — CI가 커밋으로 갱신
+  pullPolicy: IfNotPresent
+
+# 사내 Nexus(registry.example.com) 이미지 풀 시크릿. regcred는 namespace label(inject-regcred)로
+# ClusterExternalSecret이 ns에 자동 생성 — deployment가 이 이름으로 참조(another-workload 패턴).
+imagePullSecrets:
+  - name: regcred
+
+replicaCount: 1
+
+temporal:
+  # 같은 ns의 서버 frontend Service. 서버 앱 배포 후 실측 이름으로 worker values에서 지정.
+  # TEMPORAL_ADDRESS로 주입 — Go·Python 둘 다 develop에서 이 표준 이름을 읽음(2026-06-24 실측).
+  address: ""
+  # Temporal namespace (k8s ns 아님 — 서버에 등록된 namespace)
+  namespace: ""
+  # mTLS 토글 (Phase 2 — 양방향·cert-only 확정 §A1-bis). off=평문(TLS env는 빈값 선언만).
+  # on이면 CA/Cert/Key 3개 경로를 모두 채워야 함 — Go는 부분 설정이면 fail(양방향 강제).
+  # env 이름은 Temporal envconfig 표준 *_PATH (Go config.go·Python docs 양쪽 수렴, 2026-06-24).
+  tls:
+    enabled: false
+    # cert 조달 방식 — in-cluster worker는 cert-manager 권장(Vault 접속정보 불필요).
+    #   certManager.enabled=true  → 이 차트가 Certificate 리소스를 만들어 cert-manager가
+    #     ClusterIssuer(temporal-ca-issuer)로 발급·갱신 → Secret 생성 → 아래 mountPath에 자동 마운트.
+    #     워커는 Vault를 모름(파일 경로 env만 읽음). 외부 worker는 이 방식 불가(cert-manager 미도달).
+    #   certManager.enabled=false → 외부에서 만든 Secret(existingSecret)을 마운트만.
+    certManager:
+      enabled: false
+      issuerRef:
+        kind: ClusterIssuer # base/pki ClusterIssuer는 cluster-scoped
+        name: temporal-ca-issuer # dev Ready 확인됨 (base/pki/clusterissuer-temporal-ca-issuer-dev.yaml)
+      duration: 2160h # 90d (role temporal-server max_ttl과 동일)
+      renewBefore: 720h # 30d 전 cert-manager가 자동 재발급
+      privateKey:
+        algorithm: RSA
+        size: 2048
+    # certManager.enabled=false일 때만 사용 — 외부 발급 Secret(kubernetes.io/tls) 이름
+    existingSecret: ""
+    # cert 파일이 마운트될 디렉토리 (subPath 없이 디렉토리째 — 갱신 전파 위해). 표준 키 ca.crt/tls.crt/tls.key
+    mountPath: /etc/temporal/tls
+    # ⚠️ Go worker는 cert 핫리로드 없음 → Secret 갱신 시 파드 재기동 필요. Reloader(dev 설치됨) opt-in.
+    reloader: true
+    serverName: "" # TEMPORAL_TLS_SERVER_NAME — SNI override (IP/SAN 불일치 시)
+
+# 메트릭 수집 (방식 A — headless Service + ServiceMonitor, temporal-server와 동일 패턴).
+#   off가 기본 — worker별 values에서 on. ⚠️ 앱이 9090에 Prometheus 메트릭을 실제 노출할 때만 켤 것.
+#   - Go(workflow): 앱이 0.0.0.0:9090 고정 노출(env 제어 없음, .env.example 명시) → 켜도 됨.
+#   - Python(activity-worker): 현재 9090 미노출 → 켜면 ServiceMonitor 타깃이 down → off 유지.
+# 동작: enabled=true면 ① deployment에 containerPort(name=metrics) ② headless Service(metrics 포트)
+#   ③ ServiceMonitor 생성. dev Prometheus Operator는 annotation 무시·ServiceMonitor만 보고,
+#   serviceMonitorSelector가 release 라벨을 요구(서버 실측) → additionalLabels.release 필수.
+metrics:
+  enabled: false
+  port: 9090 # 앱이 노출하는 포트 (Go worker는 9090 고정). Service/SM/containerPort가 공유.
+  serviceMonitor:
+    interval: 30s
+    # ⚠️ Operator serviceMonitorSelector가 이 라벨을 요구(dev 실측) — 빠지면 미수집. 서버와 동일값.
+    additionalLabels:
+      release: kube-prometheus-stack
+
+# 컨테이너에 TEMPORAL_ADDRESS / TEMPORAL_NAMESPACE 로 주입됨 (아래 env로 추가 가능)
+env: [] # [{name: FOO, value: bar}]
+envFrom: [] # [{secretRef: {name: ...}}] — ESO 동기화 Secret 참조 등
+
+# 앱 시크릿 — ESO(External Secrets Operator)가 Vault KV → K8s Secret으로 동기화.
+#   enabled=true → 이 차트가 ExternalSecret CR을 만들어 ClusterSecretStore(vault-secret-store)로
+#     Vault KV(vaultPath)를 읽어 secretName Secret을 생성. 앱은 envFrom: [secretRef]로 받음.
+#     ⚠️ Secret은 worker와 같은 ns에 생성되므로 ExternalSecret을 차트에 둬야 ns가 일치(별도 ns worker).
+#   ⚠️ 운영자 선행: vault kv put secret/<vaultPath> <key>=<값> (KV write 토큰 필요 — repo 토큰 불가).
+#   ⚠️ 키 변경 시 Secret은 refreshInterval 주기로 갱신되나 env는 파드 재시작 전까지 안 바뀜 →
+#     반영하려면 kubectl rollout restart 필요(Reloader 자동화는 향후).
+#   ⚠️ ESO는 시크릿 "참조"만 — 비밀값은 git에 없음. data[]는 Vault KV의 property 이름.
+externalSecret:
+  enabled: false
+  # ESO ClusterSecretStore (dev 실측: kubernetes auth/eso-role, vault, KV v2 mount=secret).
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: vault-secret-store
+  # Vault KV 경로 (mount 'secret' 이후, KV v2). 예: k8s/temporal/<svc>/<env>/<worker>
+  vaultPath: ""
+  # ESO가 생성할 K8s Secret 이름 (envFrom에서 이 이름을 참조).
+  secretName: ""
+  refreshInterval: 1h
+  # Vault KV property → K8s Secret key 매핑. secretKey=컨테이너 env 이름, property=Vault KV 키.
+  data: [] # [{secretKey: EXAMPLE_API_KEY, property: example_api_key}]
+
+# ⚠️ k8s namespace는 이 차트가 만들지 않는다. worker 2개(activity-worker·workflow)가 ns를 공유하므로
+# 차트가 만들면 두 앱이 같은 ns 리소스를 소유해 충돌(OutOfSync)하고, 한 앱 삭제 시 ns가 cascading
+# delete되어 다른 worker까지 죽는다. 대신 ApplicationSet이 CreateNamespace=true로 만들고
+# managedNamespaceMetadata로 inject-regcred label을 박는다(regcred 자동주입). ns는 어느 worker
+# 앱에도 안 묶임 = server/db ns와 동일(앱 삭제해도 ns 안전). 상세: argocd/dev/applicationset-workers.yaml.
+
+serviceAccount:
+  create: true
+
+resources: {} # 서비스별 실측 기반으로 worker values에서 지정 (근거 없는 기본값 두지 않음)
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

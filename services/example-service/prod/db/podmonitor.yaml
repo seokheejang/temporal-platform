@@ -1,0 +1,21 @@
+# cnpg(temporal-pg) 메트릭 수집 (M3) — 수동 PodMonitor.
+# cnpg가 만드는 PodMonitor엔 release 라벨을 못 붙여 Operator가 선택 못 함(1.29.0 제약) → 직접 생성.
+# selector/endpoint는 cnpg 생성본 구조 복제(port=metrics :9187).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: temporal-pg
+  namespace: prod-temporal-example-service
+  labels:
+    release: kube-prometheus-stack   # ← Operator podMonitorSelector가 요구(dev 실측). 빠지면 미수집.
+    app.kubernetes.io/part-of: temporal-platform
+spec:
+  namespaceSelector:
+    matchNames:
+      - prod-temporal-example-service
+  selector:
+    matchLabels:
+      cnpg.io/cluster: temporal-pg
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+    - port: metrics      # cnpg pod의 metrics 포트(9187)

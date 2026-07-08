@@ -1,0 +1,1317 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "tags": [
+    "temporal",
+    "example-service",
+    "dev",
+    "worker"
+  ],
+  "title": "Temporal — example-service (dev)",
+  "uid": "temporal-server-eventautomation",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "namespace",
+        "label": "Temporal namespace",
+        "type": "query",
+        "datasource": "${datasource}",
+        "query": "label_values(service_requests, namespace)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "worker",
+        "type": "query",
+        "label": "Worker",
+        "datasource": "${datasource}",
+        "query": "label_values(up{job=~\".*-worker-.*-metrics\"}, job)",
+        "regex": "",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "row",
+      "title": "클러스터 헬스 / Cluster health",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "History shards (numshards_gauge)",
+      "description": "history role이 보유한 shard 수. dev 기준 512. 급변하면 shard 재분배/멤버십 변동 신호.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "expr": "sum(numshards_gauge{service_name=\"history\"})",
+          "legendFormat": "shards",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Membership 변경 (membership_changed_count)",
+      "description": "노드 가입/이탈 누적. rate가 튀면 failover/재시작 신호.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(membership_changed_count[$__range]))",
+          "legendFormat": "changes",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "총 RPS (service_requests)",
+      "description": "프론트엔드 RPC 처리율. 전체 서버 요청 부하.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(service_requests{namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "rps",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Persistence 에러율 (persistence_error_with_type)",
+      "description": "DB 작업 에러율. 0 유지가 정상. 올라가면 DB 연결/포화 의심.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(persistence_error_with_type[5m]))",
+          "legendFormat": "errors/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Service RPC (role별 — frontend/history/matching/worker)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Service RPS by role (rate service_requests)",
+      "description": "service_name(role)별 RPC 처리율.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (service_name) (rate(service_requests{namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "{{service_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Service latency p95 by role (histogram service_latency)",
+      "description": "RPC 처리 지연 p95. service_latency는 histogram이라 histogram_quantile 사용. 단위 초(s).",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(service_latency_bucket{namespace=~\"$namespace\"}[5m])))",
+          "legendFormat": "p95 {{service_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Service 에러 by type (rate service_error_with_type)",
+      "description": "에러 타입별 발생률. rate limit이면 ResourceExhausted로 나타남.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (service_name, error_type) (rate(service_error_with_type{namespace=~\"$namespace\"}[5m])) > 0",
+          "legendFormat": "{{service_name}} / {{error_type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Persistence (DB 작업 — 앱 관점)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Persistence latency p95 / p99 (histogram persistence_latency)",
+      "description": "Temporal이 DB에 요청→응답까지 지연. DB 병목 1차 신호. operation 태그로 어떤 작업이 느린지 분해 가능.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(persistence_latency_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(persistence_latency_bucket[5m])))",
+          "legendFormat": "p99",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Persistence latency p95 by operation (top)",
+      "description": "operation별 p95 — 어떤 DB 작업(history append/read 등)이 느린지.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk(8, histogram_quantile(0.95, sum by (le, operation) (rate(persistence_latency_bucket[5m]))))",
+          "legendFormat": "{{operation}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Shard / History",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Shard lock latency p95 (histogram lock_latency)",
+      "description": "history shard lock 획득 지연. workflow update 직렬화 지점. 통념상 p95 < 5ms 권장. 높으면 history 처리량 한계 신호.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.005
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(lock_latency_bucket{service_name=\"history\"}[5m])))",
+          "legendFormat": "p95 lock",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Acquire shards latency p95 (histogram acquire_shards_latency)",
+      "description": "shard 획득 지연 — 재분배/기동 시 비용.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(acquire_shards_latency_bucket{service_name=\"history\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Matching / Task queue (poll · sync match)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Sync Match Rate (poll_success_sync / poll_success)",
+      "description": "task가 persist 없이 즉시 worker에 매칭되는 비율. 공식 권장: >95%, 가급적 >99%. 낮으면 matching 비효율/지연.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.95
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(poll_success_sync{namespace=~\"$namespace\"}[5m])) / clamp_min(sum(rate(poll_success{namespace=~\"$namespace\"}[5m])), 1)",
+          "legendFormat": "sync match rate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Poll success / timeouts (rate)",
+      "description": "poll_success=task 매칭, poll_timeouts=task 없이 timeout. 큐별(taskqueue) 폴링 활동.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(poll_success{namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "poll_success/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(poll_timeouts{namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "poll_timeouts/s",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task queue backlog — task_lag_per_tl (gauge)",
+      "description": "task queue별 적체. gauge라 직접 표시. 큐별(taskqueue) 라벨로 어느 큐가 밀리는지.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (taskqueue) (task_lag_per_tl{namespace=~\"$namespace\"})",
+          "legendFormat": "{{taskqueue}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "DB — CloudNativePG (temporal-pg)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "PG 활성 연결 (cnpg_backends_total state=active)",
+      "description": "활성 백엔드(커넥션) 수. cnpg_backends_total은 state별로 쪼개지므로 state=active 필터. (공식 default-monitoring 쿼리 backends.total)",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (cnpg_backends_total{namespace=\"dev-temporal-example-service\", state=\"active\"})",
+          "legendFormat": "active {{pod}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(cnpg_backends_total{namespace=\"dev-temporal-example-service\"})",
+          "legendFormat": "total(all states)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "PG replication lag (cnpg_pg_replication_lag)",
+      "description": "primary↔replica streaming replication 지연(초). HA 건강성. 0에 가까워야 정상. (공식: gauge, 라벨 없음)",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "max(cnpg_pg_replication_lag{namespace=\"dev-temporal-example-service\"})",
+          "legendFormat": "lag",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "PG up (cnpg_collector_up)",
+      "description": "PostgreSQL 인스턴스 가용성. 1=up. cnpg엔 pg_up이 없고 cnpg_collector_up이 헬스 메트릭.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "expr": "min(cnpg_collector_up{namespace=\"dev-temporal-example-service\"})",
+          "legendFormat": "up",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Worker — SDK 헬스 (workflow worker)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 67
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Worker up",
+      "description": "스크랩 성공(1=정상). worker 메트릭 노출 여부.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "min(up{job=~\"$worker\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Pollers (num_pollers)",
+      "description": "활성 poller 수. 0이면 폴링 중단.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(temporal_num_pollers{job=~\"$worker\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Task slots available",
+      "description": "여유 실행 슬롯. 0 지속이면 워커 포화(처리 적체).",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 10,
+                "color": "green"
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(temporal_worker_task_slots_available{job=~\"$worker\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Sticky cache hit %",
+      "description": "sticky 캐시 적중률(높을수록 replay 비용↓).",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(temporal_sticky_cache_hit_total{job=~\"$worker\"}[5m])) / clamp_min(sum(rate(temporal_sticky_cache_hit_total{job=~\"$worker\"}[5m])) + sum(rate(temporal_sticky_cache_total_forced_eviction_total{job=~\"$worker\"}[5m])), 1)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Worker — Workflow / Activity 실행",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Workflow completed / failed (rate)",
+      "description": "완료·실패율. 실패 급증 = 비즈니스 로직/액티비티 오류.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 74
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(temporal_workflow_completed_total{job=~\"$worker\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "completed"
+        },
+        {
+          "expr": "sum(rate(temporal_workflow_failed_total{job=~\"$worker\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "failed"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Workflow end-to-end latency p95/p99 (summary)",
+      "description": "워크플로 시작→완료 지연. ⚠️ tally summary 타입 — quantile 라벨 직접 조회(histogram 아님).",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 74
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "max(temporal_workflow_endtoend_latency_seconds{job=~\"$worker\", quantile=\"0.95\"})",
+          "refId": "A",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "max(temporal_workflow_endtoend_latency_seconds{job=~\"$worker\", quantile=\"0.99\"})",
+          "refId": "B",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Worker — Task queue 지연 (schedule-to-start)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 82
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Workflow task schedule-to-start p95/p99 (summary)",
+      "description": "스케줄→워커 픽업 지연. 높으면 워커 부족/적체 — 알람 튜닝의 핵심 SLO 지표. tally summary(quantile 라벨).",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 83
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "max(temporal_workflow_task_schedule_to_start_latency_seconds{job=~\"$worker\", quantile=\"0.95\"})",
+          "refId": "A",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "max(temporal_workflow_task_schedule_to_start_latency_seconds{job=~\"$worker\", quantile=\"0.99\"})",
+          "refId": "B",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Workflow task execution latency p95 (summary)",
+      "description": "워크플로 태스크 실행 지연(replay 포함). 높으면 워크플로 코드 무거움. tally summary(quantile 라벨).",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 83
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "max(temporal_workflow_task_execution_latency_seconds{job=~\"$worker\", quantile=\"0.95\"})",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Worker — 슬롯 / 폴링",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 91
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Task slots used / available",
+      "description": "사용 중 vs 여유 슬롯. used가 상한에 붙고 available=0이면 워커 증설 신호.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 92
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(temporal_worker_task_slots_used{job=~\"$worker\"})",
+          "refId": "A",
+          "legendFormat": "used"
+        },
+        {
+          "expr": "sum(temporal_worker_task_slots_available{job=~\"$worker\"})",
+          "refId": "B",
+          "legendFormat": "available"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Pollers by task queue (num_pollers)",
+      "description": "task_queue별 활성 poller. 특정 큐 0이면 그 큐 처리 중단.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 92
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (task_queue) (temporal_num_pollers{job=~\"$worker\"})",
+          "refId": "A",
+          "legendFormat": "{{task_queue}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Worker — 서버 통신 (worker → frontend)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate by operation (worker→frontend)",
+      "description": "worker가 frontend로 보내는 RPC율(operation별). RespondWorkflowTaskCompleted 등.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 101
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation) (rate(temporal_request_total{job=~\"$worker\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request latency p95 by operation (summary)",
+      "description": "frontend 호출 지연(operation별). long-poll은 별도 temporal_long_request_*. tally summary(quantile 라벨). long-poll(Poll*TaskQueue)은 항상 ~60s(정상). 일반 RPC는 호출 있을 때만 값.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 101
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "max by (operation) (temporal_request_latency_seconds{job=~\"$worker\", quantile=\"0.95\"})",
+          "refId": "A",
+          "legendFormat": "{{operation}}"
+        },
+        {
+          "expr": "max by (operation) (temporal_long_request_latency_seconds{job=~\"$worker\", quantile=\"0.95\"})",
+          "legendFormat": "long-poll {{operation}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Worker — Go 런타임 (자원)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 109
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Goroutines",
+      "description": "고루틴 수. 지속 증가 = 누수 의심.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 110
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (go_goroutines{job=~\"$worker\"})",
+          "refId": "A",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap in-use bytes",
+      "description": "힙 사용량. process_resident_memory와 함께 OOM 위험 판단.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 110
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (go_memstats_heap_inuse_bytes{job=~\"$worker\"})",
+          "refId": "A",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU rate (process)",
+      "description": "프로세스 CPU 사용률(core). limits 대비 추세 확인.",
+      "datasource": "${datasource}",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 110
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(process_cpu_seconds_total{job=~\"$worker\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    }
+  ]
+}

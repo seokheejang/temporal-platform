@@ -1,0 +1,112 @@
+{{- if not .Values.image.repository }}{{ fail "image.repository는 필수 (worker values에서 지정)" }}{{- end }}
+{{- if not .Values.image.tag }}{{ fail "image.tag는 필수 (CI가 GitOps로 갱신)" }}{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "temporal-worker.fullname" . }}
+  labels:
+    {{- include "temporal-worker.labels" . | nindent 4 }}
+  {{- if and .Values.temporal.tls.enabled .Values.temporal.tls.reloader }}
+  annotations:
+    # Go worker는 cert 핫리로드 없음 → cert Secret 갱신 시 Reloader가 이 Deployment를 롤링 재기동.
+    # Reloader는 Deployment를 watch하므로 annotation은 pod template이 아니라 여기(Deployment)에 둔다.
+    reloader.stakater.com/auto: "true"
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "temporal-worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "temporal-worker.labels" . | nindent 8 }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "temporal-worker.fullname" . }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      # 사내 Nexus(registry.example.com) 이미지 풀용. regcred는 ns label(inject-regcred)로 ESO가 자동 생성
+      # (namespace.yaml 참조). another-workload 패턴과 동일 — SA 자동첨부 아닌 deployment 명시 참조.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.metrics.enabled }}
+          # Prometheus 메트릭 포트 — 앱이 노출하는 포트(Go worker는 0.0.0.0:9090 고정).
+          # name=metrics를 Service·ServiceMonitor가 참조(방식 A). worker는 outbound-only라 이 포트만 인바운드.
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          {{- end }}
+          env:
+            # 주소·namespace는 Temporal envconfig 표준 이름으로 주입. Go(orchestration-worker)·Python
+            # (activity-worker) 둘 다 develop에서 TEMPORAL_ADDRESS를 읽는다(2026-06-24 실측 — Go가 옛
+            # TEMPORAL_HOSTPORT에서 표준 이름으로 전환됨). 과거의 HOSTPORT 동시주입은 제거.
+            - name: TEMPORAL_ADDRESS
+              value: {{ required "temporal.address는 필수 (서버 frontend Service 실측 후 지정)" .Values.temporal.address | quote }}
+            - name: TEMPORAL_NAMESPACE
+              value: {{ required "temporal.namespace는 필수" .Values.temporal.namespace | quote }}
+            {{- if .Values.temporal.tls.enabled }}
+            # mTLS on(양방향·cert-only 확정 §A1-bis) — env 이름은 Temporal envconfig 표준 *_PATH.
+            # 양쪽 worker가 이 이름으로 수렴(Go config.go·Python docs/environment-variables.md, 2026-06-24).
+            # 경로는 mountPath + cert-manager Secret 고정 키(ca.crt/tls.crt/tls.key)로 자동 계산 —
+            # 사용자가 일일이 경로를 안 적어도 됨. CA/Cert/Key 셋 다 차야 함(Go 부분설정 fail=양방향 강제).
+            - name: TEMPORAL_TLS_SERVER_CA_CERT_PATH
+              value: {{ printf "%s/ca.crt" .Values.temporal.tls.mountPath | quote }}
+            - name: TEMPORAL_TLS_CLIENT_CERT_PATH
+              value: {{ printf "%s/tls.crt" .Values.temporal.tls.mountPath | quote }}
+            - name: TEMPORAL_TLS_CLIENT_KEY_PATH
+              value: {{ printf "%s/tls.key" .Values.temporal.tls.mountPath | quote }}
+            - name: TEMPORAL_TLS_SERVER_NAME
+              value: {{ .Values.temporal.tls.serverName | quote }}
+            {{- end }}
+            {{- /*
+            mTLS off(평문)이면 TEMPORAL_TLS_* env를 아예 주입하지 않는다(빈값 선언 X).
+            ⚠️ 빈 문자열("")로 선언하면 Python worker가 깨진다(실측 2026-06-25):
+            Python buildTemporalTls()는 os.environ.get()이 None일 때만 평문으로 보는데,
+            ""(빈 문자열)은 None이 아니라 mTLS 분기를 타고 Path("").read_bytes() → IsADirectoryError('.').
+            Go는 `value != ""` 체크라 빈값도 무시했지만 Python은 .get()이 ""를 그대로 반환 → 불일치.
+            env 자체를 생략하면 양쪽 다 None/미설정 → 평문. (on일 때만 위 if 블록에서 주입)
+            */}}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.temporal.tls.enabled }}
+          volumeMounts:
+            # cert Secret을 디렉토리째 마운트(subPath 금지 — subPath면 Secret 갱신이 파일에 전파 안 됨).
+            # cert-manager(또는 외부)가 채운 ca.crt/tls.crt/tls.key가 mountPath에 파일로 나타남.
+            - name: temporal-tls
+              mountPath: {{ .Values.temporal.tls.mountPath }}
+              readOnly: true
+          {{- end }}
+      {{- if .Values.temporal.tls.enabled }}
+      volumes:
+        - name: temporal-tls
+          secret:
+            secretName: {{ required "tls.enabled=true면 certManager.enabled 또는 existingSecret 필요" (include "temporal-worker.tlsSecretName" .) }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

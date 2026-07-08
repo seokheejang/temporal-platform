@@ -1,0 +1,28 @@
+# example-service / prod — 환경 차이만 (ns: temporal-example-service-prod @ prod)
+# ⚠️ prod 미구축 — 배포 전 확정 필요: ClusterIssuer prod 선행(런북), 사이징(R5 부하테스트)
+
+env: prod
+
+temporal:
+  server:
+    replicaCount: 2 # R5: History 1개면 SPOF — role당 최소 2
+    metrics:
+      serviceMonitor:
+        enabled: true
+        interval: 30s
+        additionalLabels:
+          release: kube-prometheus-stack
+  web:
+    replicaCount: 2
+
+uiRoute:
+  enabled: true
+  hostname: temporal-example-service.k8s.example.com
+
+grpcLB:
+  enabled: true
+  loadBalancerIP: "192.0.2.101"
+  hostname: temporal-example-service-grpc.k8s.example.com
+
+alerts:
+  enabled: true

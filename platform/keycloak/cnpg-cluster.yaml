@@ -1,0 +1,29 @@
+# Keycloak 전용 PostgreSQL — cnpg (dev 기존 패턴: 2 instances · standard · podMonitor)
+# realm/client 설정 저장용이라 소용량으로 시작 (resizeInUseVolumes로 온라인 확장 가능)
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-pg
+  namespace: keycloak
+spec:
+  instances: 2
+  storage:
+    size: 10Gi
+    storageClass: standard
+    resizeInUseVolumes: true
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+      encoding: UTF8
+      secret:
+        name: keycloak-pg-app # ESO가 Vault KV에서 동기화 (externalsecrets.yaml)
+  monitoring:
+    enablePodMonitor: true

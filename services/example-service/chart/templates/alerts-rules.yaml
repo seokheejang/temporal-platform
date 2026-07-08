@@ -1,0 +1,85 @@
+{{- if .Values.alerts.enabled }}
+{{- /*
+가용성 알람 (PrometheusRule) — 서버·worker·DB up==0. 전용 Slack 채널 라우팅(alerts-config.yaml).
+서버 wrapper에 통합(별도 ArgoCD 앱 안 만듦 — 앱 수 최소화). 설계: docs/alerting-design.md.
+
+Slack 파이프라인 계약:
+  ① 라벨 app.kubernetes.io/managed-by: observability → Prometheus ruleSelector 채택(observability 엔진 규약)
+  ② alert labels.severity: critical|warning  → Alertmanager 라우팅
+  ③ alert labels.service: {svc}              → 이 repo 전용 Slack 채널로(alerts-config.yaml matcher)
+  ④ [DEV]/[PROD]는 Prometheus externalLabels.stage 자동 주입 — 룰이 안 박음(prod 복제 시 자동 전환).
+job 라벨은 release명 기반 동적 생성 → dev/prod 공통(하드코딩 아님).
+*/}}
+{{- $release := printf "%s-temporal-%s-server" .Values.env .Values.svcName }}
+{{- $ns := printf "%s-temporal-%s" .Values.env .Values.svcName }}
+{{- $svcLabel := printf "temporal-%s" .Values.svcName }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $release }}-up
+  labels:
+    app.kubernetes.io/managed-by: observability # ← 필수: Prometheus ruleSelector 매칭(빠지면 룰 미로드)
+    app.kubernetes.io/part-of: temporal-platform
+spec:
+  groups:
+    - name: {{ $svcLabel }}.availability
+      rules:
+        # 서버 4 role(frontend/history/matching/worker) 중 하나라도 스크랩 불가 = 장애
+        - alert: TemporalServerDown
+          expr: up{job=~"{{ $release }}-.*-headless"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: {{ $svcLabel }} # 전용 Slack 채널 라우팅 키(alerts-config.yaml matcher)
+          annotations:
+            summary: "Temporal 서버 {{ "{{ $labels.job }}" }} down"
+            description: "{{ "{{ $labels.job }}" }} (pod {{ "{{ $labels.pod }}" }}) 메트릭 스크랩 2분간 실패 — 서버 role 다운 의심."
+
+        # cnpg DB(서버·visibility store) 다운 = 전체 장애
+        - alert: TemporalDBDown
+          expr: up{job="{{ $ns }}/temporal-pg"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: {{ $svcLabel }}
+          annotations:
+            summary: "Temporal DB(temporal-pg) down"
+            description: "cnpg temporal-pg 메트릭 스크랩 2분간 실패 — DB 인스턴스 다운 의심."
+
+        # SDK worker(현재 workflow만 메트릭 노출) 다운. 재배포 잦아 여유 5m·warning.
+        - alert: TemporalWorkerDown
+          expr: up{job="{{ $ns }}-worker-workflow-metrics"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            service: {{ $svcLabel }}
+          annotations:
+            summary: "Temporal worker(workflow) down"
+            description: "workflow worker 메트릭 스크랩 5분간 실패 — 폴링 중단 의심. (activity-worker는 메트릭 미노출이라 미포함)"
+
+    # SLO/개발자 관점 알람 — 배포 사고·비즈니스 실패 감지. 근거: docs/worker-key-metrics.md.
+    # ⚠️ counter는 total==0 비교가 아니라 increase()로 "최근 새 발생"을 본다(멈추면 자동 해제).
+    - name: {{ $svcLabel }}.slo
+      rules:
+        # 워크플로우 태스크 실행 실패 = non-determinism(배포로 wf 코드 변경 시 versioning 실수) 의심.
+        # ⚠️ for 없음 — 단발 실패도 놓치면 안 됨(1건이라도 즉시 발화). increase[2m] 윈도우가 단발도 2분간 잡음.
+        - alert: TemporalWFTaskExecutionFailed
+          expr: sum(increase(temporal_workflow_task_execution_failed_total{job="{{ $ns }}-worker-workflow-metrics"}[2m])) > 0
+          labels:
+            severity: critical
+            service: {{ $svcLabel }}
+          annotations:
+            summary: "워크플로우 task 실행 실패 (non-determinism 의심)"
+            description: "최근 2분 내 workflow task execution 실패 발생. 배포 직후면 versioning 실수(non-determinism) 가능 → 배포 롤백/워크플로우 코드 검토."
+
+        # 워크플로우 최종 실패 = 이벤트 처리 누락/정합성 문제(example-service은 실패가 곧 장애 — 사용자 결정).
+        # ⚠️ for 없음 — 1건이라도 발생 시 무조건 알림(단발도 놓치면 안 됨). 정상 reject를 fail로 안 쓴다는 전제.
+        - alert: TemporalWorkflowFailed
+          expr: sum(increase(temporal_workflow_failed_total{job="{{ $ns }}-worker-workflow-metrics"}[2m])) > 0
+          labels:
+            severity: critical
+            service: {{ $svcLabel }}
+          annotations:
+            summary: "워크플로우 실행 실패 — 이벤트 처리 누락 의심"
+            description: "최근 2분 내 workflow 최종 실패 발생. example-service에서 워크플로우 실패는 이벤트 처리 누락/정합성 문제로 직결 → 즉시 워크플로우 history·개발자 대시보드 확인. (정상 reject가 fail로 잡히는 경우면 severity 재검토)"
+{{- end }}

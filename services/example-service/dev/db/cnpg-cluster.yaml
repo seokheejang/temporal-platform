@@ -1,0 +1,31 @@
+# example-service Temporal 전용 PostgreSQL — cnpg (R2/R4: main+visibility 겸용 PG, in-cluster)
+# dev 시작값: 2 instances · 20Gi (resizeInUseVolumes로 온라인 확장) — prod는 R5 부하테스트 후 사이징
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: temporal-pg
+  namespace: dev-temporal-example-service
+spec:
+  instances: 2
+  storage:
+    size: 20Gi
+    storageClass: standard
+    resizeInUseVolumes: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  bootstrap:
+    initdb:
+      database: temporal # main store — visibility DB는 Database CR로 (database-visibility.yaml)
+      owner: temporal
+      encoding: UTF8
+      secret:
+        name: temporal-pg-app # ESO 동기화 (externalsecrets.yaml)
+  monitoring:
+    # ⚠️ cnpg가 만드는 PodMonitor엔 release 라벨을 못 붙여 Operator가 선택 못 함(1.29.0 제약).
+    # → release 라벨 붙인 PodMonitor를 수동 생성(podmonitor.yaml). 여긴 off로 중복 방지.
+    enablePodMonitor: false

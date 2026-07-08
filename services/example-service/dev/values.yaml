@@ -1,0 +1,35 @@
+# example-service / dev — 환경 차이만 (ns: dev-temporal-example-service @ dev)
+temporal:
+  server:
+    replicaCount: 1 # dev 최소 — prod는 role당 ≥2 (R5 HA)
+    # 메트릭 수집 (M2). dev Prometheus Operator는 annotation 무시·ServiceMonitor만 봄 → 켜야 수집됨.
+    metrics:
+      serviceMonitor:
+        enabled: true
+        interval: 30s
+        # ⚠️ Operator의 serviceMonitorSelector가 release 라벨을 요구(dev 실측) — 빠지면 미수집.
+        additionalLabels:
+          release: kube-prometheus-stack
+  web:
+    replicaCount: 1
+
+# Web UI 외부 노출 (C2) — shared-gateway HTTPRoute로 hostname 공개(wrapper 고유 토글, temporal: 밖).
+# hostname/gateway는 차트 기본값(temporal-example-service.dev.k8s.example.com / shared-gateway) 사용.
+# ⚠️ 무인증 — SSO 보호는 C2 후속. ⚠️ 서버 mTLS면 web도 cert 필요(values-mtls.yaml web.additionalEnv로 처리).
+uiRoute:
+  enabled: true
+
+# 외부 gRPC 노출 (C1) — frontend(7233) LoadBalancer Service. IP 192.0.2.100 점유(차트 기본값).
+# ⚠️ 공유 IP 풀을 쓴다면 게이트웨이/인프라 repo에서 이 서비스용 IP 대역을 예약해 둘 것.
+# hostname: external-dns가 이 도메인→.100 레코드 생성. 외부 SDK worker가 이 주소:7233으로 mTLS 접속.
+# UI(temporal-example-service.dev.k8s.example.com, HTTP/443)와 별도 — gRPC는 -grpc 접미사로 구분.
+# 외부 worker client cert(Vault approle, B4)는 별개 — 이 LB는 '노출'만.
+grpcLB:
+  enabled: true
+  hostname: temporal-example-service-grpc.dev.k8s.example.com
+
+# 가용성 알람 (서버·worker·DB up==0 → 전용 Slack 채널). 서버 차트에 통합(별도 앱 없음).
+# webhook Secret은 운영자 수동 생성(services/example-service/dev/alerts/create-webhook-secret.sh) —
+# 이미 dev에 temporal-example-service-alert-slack 생성됨. 설계: docs/alerting-design.md.
+alerts:
+  enabled: true

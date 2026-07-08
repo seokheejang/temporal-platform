@@ -1,0 +1,65 @@
+# example-service / activity-worker (Python) / dev
+# 차트: charts/worker (공용 generic, ADR-0006) — 여기는 values만. 앱 시크릿 있음(외부 API 등).
+# CI/CD: 앱 repo GHA가 develop push→dev 이미지 빌드 후 .image.tag만 yq로 bump(GitOps).
+
+image:
+  repository: "registry.example.com/repository/example/example-service/activity-worker"
+  tag: "v1.0.1" # CI가 갱신 (dev=<shortsha>-<run_number> / prod=v1.0.0)
+replicaCount: 1
+# 자원 — dev idle 실측(2026-06-25): 75m / 108Mi. ⚠️ limits는 부하 데이터 없음 → LLM 추론 스파이크
+# 고려한 보수적 상한, 실부하 측정 후 조정 필요.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+temporal:
+  # ⚠️ worker는 별도 ns(-worker)라 서버 ns를 넘는 FQDN으로 지정(short name 불가).
+  address: "prod-temporal-example-service-server-frontend.prod-temporal-example-service.svc.cluster.local:7233"
+  # Temporal namespace = 앱 도메인 값(A2, 앱 코드 dev값). ⚠️ 서버에 이 namespace 선행 등록 필요
+  # (temporal operator namespace create) — 미등록 시 worker 접속 거부.
+  namespace: "example-service-prod"
+  # mTLS 양방향·cert-only(§A1-bis). Python mTLS 코드 완비(temporal_tls.py). in-cluster라 cert-manager 발급.
+  tls:
+    enabled: true
+    certManager:
+      enabled: true
+env:
+  # dev 전용 — 미설정 시 prod로 가므로 dev는 반드시 명시.
+  - name: EXAMPLE_API_BASE_URL
+    value: "https://example-app.example.com"
+  - name: EXAMPLE_API2_BASE_URL
+    value: "https://another-service.k8s.example.com"
+  # - name: EXTRA_FEATURE_ENABLED
+  #   value: "true"
+  # - name: EXTRA_API_URL
+  #   value: "https://observability.example.com"
+  # - name: EXTRA_PROJECT
+  #   value: "[PROD] example-project"
+  - name: METRICS_ADDRESS
+    value: 0.0.0.0:9090 # 설정 시 Prometheus 메트릭 포트 오픈
+# 메트릭 수집 (headless Service + ServiceMonitor). Python(activity-worker)은 위 METRICS_ADDRESS로
+# 0.0.0.0:9090에 Prometheus 노출 → 이 env가 있을 때만 metrics.enabled=true로 켠다.
+# (env 없이 켜면 ServiceMonitor 타깃이 down — charts/worker/values.yaml §metrics 경고 참조)
+metrics:
+  enabled: true
+# 앱 시크릿 — ESO가 Vault KV → K8s Secret 동기화(charts/worker §externalSecret), envFrom으로 주입.
+# ⚠️ 운영자 선행 시드(KV write 토큰 필요): vault kv put secret/<vaultPath> example_api_key=<값>
+# ⚠️ 키 변경 시 Secret은 refreshInterval(1h)로 갱신되나 env 반영엔 파드 재시작 필요(rollout restart).
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: vault-secret-store
+  vaultPath: k8s/temporal/example-service/prod/activity-worker
+  secretName: activity-worker-secrets
+  data:
+    - secretKey: EXAMPLE_API_KEY # 컨테이너 env 이름(앱이 os.environ에서 읽음)
+      property: example_api_key # Vault KV 키
+    # - secretKey: EXTRA_API_KEY # 컨테이너 env 이름(앱이 os.environ에서 읽음)
+    #   property: extra_api_key # Vault KV 키
+envFrom:
+  - secretRef:
+      name: activity-worker-secrets

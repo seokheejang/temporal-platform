@@ -1,0 +1,27 @@
+# Temporal mTLS용 Vault PKI ClusterIssuer — prod (prod-cluster) 전용 (런북 4-2)
+# 환경별 차이는 auth mountPath뿐 — Vault 서버(vault)·PKI 경로는 dev/prod 공통.
+# ClusterIssuer 이름은 dev와 동일하게 유지(클러스터가 다르므로 충돌 없음) → temporal values에서 env 무관하게 같은 issuer 이름 참조 가능.
+#
+# ⚠️ 적용 전 선행 작업 (아직 미실행):
+#   1. Vault 측 role 생성 (관리자 권한 필요 — temporal-pki 토큰으론 불가):
+#      vault write auth/kubernetes-prod/role/cert-manager-temporal \
+#          bound_service_account_names="cert-manager" \
+#          bound_service_account_namespaces="cert-manager" \
+#          policies="temporal-pki" ttl=10m
+#   2. prod cert-manager SA 이름/ns 실측 (kubectl get sa -n cert-manager) → bound 값과 일치 확인.
+#   3. 열린 결정 (런북 "남은 결정"): prod 전용 Intermediate 분리 여부 · 오프라인 Root 전환 여부
+#      → 분리 결정 시 spec.vault.path 변경 필요 (예: pki_temporal_prod_int/...).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: temporal-ca-issuer
+spec:
+  vault:
+    server: https://vault.example.com
+    path: pki_temporal_int/sign/temporal-server
+    auth:
+      kubernetes:
+        mountPath: /v1/auth/kubernetes-prod # 기존 auth mount 재활용 (dev와의 유일한 차이)
+        role: cert-manager-temporal
+        serviceAccountRef:
+          name: cert-manager

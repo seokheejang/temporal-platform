@@ -1,0 +1,57 @@
+{{- if .Values.mtls.enabled }}
+{{- /*
+서버 mTLS cert (B3) — cert-manager가 ClusterIssuer(temporal-ca-issuer)로 서버 cert를 발급·갱신.
+internode(서버↔서버 4-role)와 frontend(worker↔서버) 양쪽에 같은 cert 1장을 쓴다.
+서버는 internode에서 "서버이자 클라이언트"(상대 role에 dial)라 EKU는 Server+Client 둘 다 필요.
+이 Certificate가 만든 Secret(kubernetes.io/tls: ca.crt/tls.crt/tls.key)을 server pod가
+additionalVolumes/Mounts로 mountPath에 디렉토리째 마운트하고(values), config.tls가 그 경로를 읽는다.
+
+⚠️ 무중단 갱신: 서버는 cert를 파일에서 "읽기만" 하고 CA에 재요청 안 함(expirationChecks는 경고만).
+  → config.tls.refreshInterval(values)로 서버가 주기적으로 디스크 재독 = 무중단. certData 인라인 금지.
+  (cert-manager가 Secret을 renewBefore에 갱신 → 파일 갱신 → 서버가 refreshInterval마다 재로드)
+
+⚠️ release명 = {svc}-server (Service명 {release}-frontend 규칙). SAN은 worker가 dial하는 FQDN과
+  internode headless 호스트를 모두 포함해야 함(serverName 검증 통과).
+*/}}
+{{- $release := printf "%s-temporal-%s-server" .Values.env .Values.svcName }}
+{{- $ns := .Release.Namespace }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $release }}-tls
+  labels:
+    app.kubernetes.io/part-of: temporal-platform
+    app.kubernetes.io/component: server
+spec:
+  secretName: {{ .Values.mtls.secretName }}
+  # ⚠️ commonName 생략 — SAN(dnsNames, 아래)만 사용. frontend FQDN(~93자)이 X.509 commonName
+  # 64바이트 제한 초과 + Vault role은 평이름 거부(실측 2026-06-25). SAN 기반이라 신원 식별 OK.
+  duration: {{ .Values.mtls.duration }}
+  renewBefore: {{ .Values.mtls.renewBefore }}
+  privateKey:
+    algorithm: {{ .Values.mtls.privateKey.algorithm }}
+    size: {{ .Values.mtls.privateKey.size }}
+  usages:
+    - server auth # frontend: worker가 서버 신원 검증
+    - client auth # internode: 서버가 다른 role에 dial할 때 클라이언트 역할
+  # ⚠️ SAN은 FQDN만 — short name(...-frontend)은 Vault role allowed_domains(svc.cluster.local 등
+  # 도메인 형식)에 안 맞아 "subject alternate name not allowed"로 거부됨(실측 2026-06-25).
+  # worker·internode 모두 k8s 내부에서 FQDN으로 통신하므로 FQDN SAN만으로 충분.
+  dnsNames:
+    # frontend — worker가 dial하는 FQDN(serverName 검증 대상)
+    - {{ $release }}-frontend.{{ $ns }}.svc.cluster.local
+    - {{ $release }}-frontend-headless.{{ $ns }}.svc.cluster.local
+    # internode — 4-role headless FQDN (서버↔서버)
+    - {{ $release }}-history-headless.{{ $ns }}.svc.cluster.local
+    - {{ $release }}-matching-headless.{{ $ns }}.svc.cluster.local
+    - {{ $release }}-worker-headless.{{ $ns }}.svc.cluster.local
+    # internode 공통 serverName — Temporal internode는 멤버십을 Pod IP로 관리해 IP로 dial하는데,
+    # cert에 IP SAN이 없어 "cannot validate ... doesn't contain any IP SANs"로 실패(실측 2026-06-25).
+    # 해결: client.serverName(values-mtls.yaml)을 이 공통 이름으로 고정 → IP dial이어도 이 이름으로
+    # 검증 → SAN 매칭 통과. 4-role 각각의 headless 대신 단일 이름으로 통일(어느 role이든 같은 cert).
+    - {{ $release }}.{{ $ns }}.svc.cluster.local
+  issuerRef:
+    kind: {{ .Values.mtls.issuerRef.kind }}
+    name: {{ .Values.mtls.issuerRef.name }}
+    group: cert-manager.io
+{{- end }}

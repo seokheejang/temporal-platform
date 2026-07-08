@@ -1,0 +1,54 @@
+# ArgoCD ApplicationSet — Temporal 서비스 앱 생성 (ADR-0005: 서비스=앱1개, 같은 repo 2-source)
+# 단위: services/<svc>/<env>/ 디렉토리 1개 = Application 1개 (서버+부속 리소스)
+# DB(cnpg)는 별도 앱 — A1에서 services/<svc>/db/ + 전용 ApplicationSet 추가 예정.
+# MVP 범위: dev(=dev in-cluster)만. prod는 prod 클러스터를 ArgoCD에 등록 후 generator 확장.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: temporal-services
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/seokheejang/temporal-platform.git
+        revision: HEAD
+        directories:
+          - path: services/*/dev # env=dev만 (prod 등록 후 services/*/prod 추가)
+          - path: services/_template/* # ⚠️ 실측: *도 **도 세그먼트 1개만 매칭 — include와 같은 깊이(3세그먼트)로 명시
+            exclude: true
+  template:
+    metadata:
+      # svc = services/<svc>/<env>의 두 번째 segment, env = basename
+      # 명명 체계: {env}-temporal-{svc}-{component} (component = server | db | worker-{name})
+      name: '{{ .path.basename }}-temporal-{{ index .path.segments 1 }}-server'
+    spec:
+      project: temporal
+      sources:
+        # source① — 서비스별 umbrella wrapper chart (ADR-0005 §3)
+        - repoURL: https://github.com/seokheejang/temporal-platform.git
+          targetRevision: HEAD
+          path: 'services/{{ index .path.segments 1 }}/chart'
+          helm:
+            # 파일이 없으면 무시 — mTLS valueFile(아래)을 토글로 쓰기 위함(파일 존재=mTLS on).
+            ignoreMissingValueFiles: true
+            valueFiles: # 3-layer (ADR-0004) — chart 밖 파일은 $values ref로 (ADR-0005 §4)
+              - $values/base/values-common.yaml
+              - '$values/services/{{ index .path.segments 1 }}/values.yaml'
+              - '$values/services/{{ index .path.segments 1 }}/{{ .path.basename }}/values.yaml'
+              # mTLS 토글(B3·§A1-bis) — 이 파일이 존재하면 mTLS on, 없으면 평문(ignoreMissingValueFiles).
+              # config.tls(internode+frontend)+cert 볼륨마운트+mtls.enabled를 한 파일에 묶어 단일 토글.
+              # ⚠️ Python(activity-worker) worker mTLS 코드 준비 후에만 생성 — 서버·worker 동시 on 필요.
+              - '$values/services/{{ index .path.segments 1 }}/{{ .path.basename }}/values-mtls.yaml'
+        # source② — 같은 repo를 values 참조용으로 한 번 더 (ref만, 배포 안 함)
+        - repoURL: https://github.com/seokheejang/temporal-platform.git
+          targetRevision: HEAD
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc # dev in-cluster (ArgoCD가 dev에 상주)
+        namespace: '{{ .path.basename }}-temporal-{{ index .path.segments 1 }}' # 조직 컨벤션: env가 prefix (dev-* 실측)
+      syncPolicy:
+        syncOptions:
+          - CreateNamespace=true
+        # automated(prune/selfHeal)는 첫 수동 sync로 검증 후 활성화

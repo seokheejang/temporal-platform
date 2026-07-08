@@ -1,0 +1,14 @@
+# <service-name> — 서비스 공통 values (dev/prod 공유) — "이 서비스를 어떻게 설계했는가"의 핵심
+# 적용 순서: base/values-common.yaml → 이 파일 → <env>/values.yaml (ArgoCD $values, ADR-0005)
+# ⚠️ 규칙: upstream 서버 값은 모든 층에서 `temporal:` 키 아래 (umbrella wrapper 중첩)
+# 살아있는 레퍼런스: services/example-service/values.yaml
+
+temporal:
+  server:
+    config:
+      persistence:
+        numHistoryShards: 512 # ⚠️ 불변 — 생성 후 변경 불가. 서비스 규모에 맞춰 생성 전 확정 (R5)
+        # datastores: cnpg PG 듀얼(main `temporal` + visibility `temporal_visibility`)
+        #             — example-service 레퍼런스 복사 후 connectAddr/secret만 확인
+  web:
+    enabled: true

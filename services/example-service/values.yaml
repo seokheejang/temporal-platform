@@ -1,0 +1,47 @@
+# example-service — 서비스 공통 values ("다르게 설계"의 핵심 층, ADR-0003/0004)
+# env 차이는 dev|prod/values.yaml로. 서버 값은 `temporal:` 키 아래 (ADR-0005).
+#
+# DB: 같은 네임스페이스의 cnpg `temporal-pg` (별도 ArgoCD 앱, A1) — 상대 서비스명이라 env 불변.
+#     자격증명은 ESO 동기화 Secret `temporal-pg-app` (Vault KV — A1에서 시드).
+
+temporal:
+  server:
+    config:
+      persistence:
+        numHistoryShards: 512 # ⚠️ 불변 — 클러스터 생성 후 변경 불가 (R5 — 서비스별 확정값)
+        defaultStore: default
+        visibilityStore: visibility
+        datastores:
+          default:
+            sql:
+              pluginName: postgres12_pgx
+              driverName: postgres12_pgx
+              databaseName: temporal
+              connectAddr: "temporal-pg-rw:5432" # cnpg rw 서비스 (동일 ns)
+              connectProtocol: tcp
+              user: temporal
+              existingSecret: temporal-pg-app
+              secretKey: password
+              createDatabase: false # DB 생성은 cnpg initdb 몫
+              maxConns: 20
+              maxIdleConns: 20
+              maxConnLifetime: "1h"
+          visibility:
+            sql:
+              pluginName: postgres12_pgx
+              driverName: postgres12_pgx
+              databaseName: temporal_visibility # R3: PG advanced visibility로 시작
+              connectAddr: "temporal-pg-rw:5432"
+              connectProtocol: tcp
+              user: temporal
+              existingSecret: temporal-pg-app
+              secretKey: password
+              createDatabase: false
+              maxConns: 10
+              maxIdleConns: 10
+              maxConnLifetime: "1h"
+
+  web:
+    enabled: true # UI 노출(HTTPRoute·hostname temporal-example-service.dev.k8s.example.com)은 C2에서
+
+  # schema setup/update Job은 차트 내장 (helm hooks → ArgoCD sync hook 매핑) — A4는 동작 검증으로 축소

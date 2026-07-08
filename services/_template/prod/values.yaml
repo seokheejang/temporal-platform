@@ -1,0 +1,6 @@
+# <service-name> / prod — 환경 차이만 (서비스 공통 values.yaml 위에 오버라이드, temporal: 키 아래)
+temporal:
+  server:
+    replicaCount: 2 # R5: History 1개면 SPOF — role당 최소 2
+  web:
+    replicaCount: 2

@@ -1,0 +1,61 @@
+# ArgoCD ApplicationSet — Temporal SDK worker 앱 생성 (워크플로/액티비티 = 비즈니스 코드)
+# 단위: services/<svc>/<env>/workers/<name>/ 디렉토리 1개 = Application 1개
+# 차트: charts/worker (공용 generic) + worker별 values (2-source — ADR-0005 §4와 동일 패턴)
+# CI/CD: 앱 repo CI가 이미지 빌드 → 이 repo의 worker values.yaml에서 image.tag만 커밋 → ArgoCD sync
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: temporal-workers
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/seokheejang/temporal-platform.git
+        revision: HEAD
+        directories:
+          - path: services/*/prod/workers/* # MVP: dev만 (prod 등록 후 확장)
+          - path: services/_template/*/workers/* # ⚠️ 실측: *도 **도 세그먼트 1개만 매칭 — include와 같은 깊이로 명시
+            exclude: true
+  template:
+    metadata:
+      # services/<svc>/<env>/workers/<name> → segments[1]=svc, segments[2]=env, basename=worker명
+      # 명명 체계: {env}-temporal-{svc}-{component} (component = server | db | worker-{name})
+      name: '{{ index .path.segments 2 }}-temporal-{{ index .path.segments 1 }}-worker-{{ .path.basename }}'
+    spec:
+      project: temporal
+      sources:
+        # source① — 공용 worker chart
+        - repoURL: https://github.com/seokheejang/temporal-platform.git
+          targetRevision: HEAD
+          path: charts/worker
+          helm:
+            valueFiles:
+              - '$values/{{ .path.path }}/values.yaml' # worker별 values (image.tag = CI 관리)
+        # source② — 같은 repo를 values 참조용으로 (ref만, 배포 안 함)
+        - repoURL: https://github.com/seokheejang/temporal-platform.git
+          targetRevision: HEAD
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc # dev in-cluster
+        # worker 전용 k8s ns(서버/DB ns와 분리, 2026-06-24 리서치 결정) — {env}-temporal-{svc}-worker.
+        # 근거: worker=앱코드·잦은 배포·outbound-only(7233만)라 분리비용 거의 0(frontend FQDN env +
+        # 서버 ns에 ingress 한 줄)인 반면, cnpg DB·서버 엔진을 worker 배포 사고/자원폭주로부터
+        # RBAC·quota·장애반경 격리하는 이득이 큼. worker는 이 ns에서 서버 frontend로 FQDN 접속.
+        namespace: '{{ index .path.segments 2 }}-temporal-{{ index .path.segments 1 }}-worker'
+      syncPolicy:
+        syncOptions:
+          - CreateNamespace=true
+        # CreateNamespace=true가 만드는 ns에 label 부착(ArgoCD v2.5+ managedNamespaceMetadata).
+        # example.com/inject-regcred → ClusterExternalSecret 'regcred-to-namespaces'가 regcred
+        # (사내 Nexus 풀 시크릿)를 이 ns에 자동 생성(dev 실측). worker는 사내 이미지(registry.example.com)라
+        # 필수 — 없으면 ImagePullBackOff.
+        # ⚠️ ns를 worker 차트가 만들지 않는 이유: activity-worker·workflow 두 앱이 ns를 공유하는데
+        # 차트가 만들면 ① 두 앱이 같은 ns 리소스를 소유해 충돌(OutOfSync) ② 한 앱 삭제 시 ns가
+        # cascading delete되어 다른 worker까지 휩쓸림. ns는 ArgoCD가 인프라성으로 만들고(앱 리소스
+        # 트리 밖) 어느 worker 앱에도 안 묶이게 둔다 — server/db ns와 동일(앱 삭제해도 ns 안전).
+        managedNamespaceMetadata:
+          labels:
+            example.com/inject-regcred: "true"
+        # automated(prune/selfHeal)는 서버 배포 검증 후 활성화 — CI tag 갱신의 자동 배포는 automated 필수

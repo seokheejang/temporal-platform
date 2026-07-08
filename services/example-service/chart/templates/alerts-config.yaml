@@ -1,0 +1,59 @@
+{{- if .Values.alerts.enabled }}
+{{- /*
+이 repo 전용 Slack 채널 라우팅 (AlertmanagerConfig). observability 공통채널과 독립. 설계: docs/alerting-design.md.
+서버 wrapper 차트가 서버 ns에 배포 → AlertmanagerConfig도 서버 ns → Operator가 참조 Secret을
+같은 ns에서 읽음(webhook Secret도 이 ns). Alertmanager는 alertmanagerConfigSelector={}·
+NamespaceSelector={}라 이 ns config도 자동 채택(dev 실측).
+⚠️ matcherStrategy=None(dev 실측) — route.matchers로 service 라벨을 좁혀야 다른 alert 안 샘.
+⚠️ webhook Secret(alerts.webhookSecretName)은 GitOps 밖 — 운영자가 로컬 kubectl로 직접 생성
+   (services/<svc>/<env>/alerts/create-webhook-secret.sh, webhook 평문 git 미유출).
+Slack 메시지 형태: [STAGE][SEVERITY] AlertName (namespace) — observability baseline과 동일.
+*/}}
+{{- $svcLabel := printf "temporal-%s" .Values.svcName }}
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: {{ $svcLabel }}
+  labels:
+    app.kubernetes.io/part-of: temporal-platform
+spec:
+  route:
+    receiver: {{ $svcLabel }}-slack
+    groupBy: [alertname, namespace]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    matchers:
+      - matchType: "="
+        name: service
+        value: {{ $svcLabel }} # 이 repo alert만 잡음(rule labels.service와 일치)
+    routes:
+      - receiver: {{ $svcLabel }}-slack
+        matchers:
+          - { matchType: "=", name: severity, value: critical }
+        repeatInterval: 1h
+      - receiver: {{ $svcLabel }}-slack
+        matchers:
+          - { matchType: "=", name: severity, value: warning }
+        repeatInterval: 12h
+  receivers:
+    - name: {{ $svcLabel }}-slack
+      slackConfigs:
+        - apiURL:
+            # 운영자 수동 생성 Secret(GitOps 밖). 이 차트 ns에 이 이름·key=url로 존재해야 함.
+            name: {{ required "alerts.enabled=true면 alerts.webhookSecretName 필수" .Values.alerts.webhookSecretName }}
+            key: {{ .Values.alerts.webhookSecretKey }}
+          sendResolved: true
+          color: '{{ "{{" }} if eq .Status "resolved" {{ "}}" }}good{{ "{{" }} else if eq .CommonLabels.severity "critical" {{ "}}" }}danger{{ "{{" }} else {{ "}}" }}warning{{ "{{" }} end {{ "}}" }}'
+          title: '{{ "{{" }} if .CommonLabels.stage {{ "}}" }}[{{ "{{" }} .CommonLabels.stage | toUpper {{ "}}" }}]{{ "{{" }} end {{ "}}" }}[{{ "{{" }} if eq .Status "resolved" {{ "}}" }}RESOLVED{{ "{{" }} else {{ "}}" }}{{ "{{" }} .CommonLabels.severity | toUpper {{ "}}" }}{{ "{{" }} end {{ "}}" }}] {{ "{{" }} .GroupLabels.alertname {{ "}}" }}{{ "{{" }} if .GroupLabels.namespace {{ "}}" }} ({{ "{{" }} .GroupLabels.namespace {{ "}}" }}){{ "{{" }} end {{ "}}" }}'
+          text: |
+            {{ "{{" }} range .Alerts -{{ "}}" }}
+            *Severity:* `{{ "{{" }} .Labels.severity {{ "}}" }}`
+            *Alert:* {{ "{{" }} .Labels.alertname {{ "}}" }}{{ "{{" }} if .Labels.namespace {{ "}}" }} | ns: `{{ "{{" }} .Labels.namespace {{ "}}" }}`{{ "{{" }} end {{ "}}" }}
+            {{ "{{" }} if .Annotations.summary {{ "}}" }}*Summary:* {{ "{{" }} .Annotations.summary {{ "}}" }}
+            {{ "{{" }} end -{{ "}}" }}
+            {{ "{{" }} if .Annotations.description {{ "}}" }}*Description:* {{ "{{" }} .Annotations.description {{ "}}" }}
+            {{ "{{" }} end -{{ "}}" }}
+            ---
+            {{ "{{" }} end {{ "}}" }}
+{{- end }}

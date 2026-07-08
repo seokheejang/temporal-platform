@@ -1,0 +1,11 @@
+# 조직 공통 기본값 (얇게 유지 — ADR-0004. 정말 전역적인 것만)
+# 적용 순서: 이 파일 → services/<svc>/values.yaml → services/<svc>/<env>/values.yaml (ArgoCD $values, ADR-0005)
+# 규칙: upstream(temporalio/temporal) 서버 값은 모든 층에서 `temporal:` 키 아래 (umbrella wrapper 중첩).
+
+temporal:
+  additionalLabels:
+    app.kubernetes.io/part-of: temporal-platform
+  server:
+    metrics:
+      serviceMonitor:
+        enabled: false # D1(관측성) 단계에서 전역 enable 예정
